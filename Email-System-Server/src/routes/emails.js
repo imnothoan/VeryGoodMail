@@ -53,7 +53,8 @@ router.get('/counts/unread', async (req, res) => {
       social: 0,
       updates: 0,
       promotions: 0,
-      archive: 0
+      archive: 0,
+      primary: 0
     };
 
     emails.forEach(email => {
@@ -64,7 +65,7 @@ router.get('/counts/unread', async (req, res) => {
         counts.inbox++;
       }
       
-      // Count drafts
+      // Count drafts (all drafts, not just unread)
       if (email.is_draft && !email.is_trashed) {
         counts.drafts++;
       }
@@ -81,8 +82,8 @@ router.get('/counts/unread', async (req, res) => {
       
       // Count by AI category (only for received emails, not sent)
       if (!email.is_trashed && !email.is_spam && !email.is_draft && !email.is_sent && isUnread) {
-        const category = email.ai_category;
-        if (category && counts.hasOwnProperty(category)) {
+        const category = email.ai_category || 'primary';
+        if (counts.hasOwnProperty(category)) {
           counts[category]++;
         }
       }
@@ -179,19 +180,52 @@ router.get('/', async (req, res) => {
       throw error;
     }
 
-    // Decrypt email content
+    // Get unique sender emails to lookup profiles
+    const senderEmails = [...new Set(emails.map(e => e.sender_email).filter(Boolean))];
+    
+    // Lookup sender profiles for avatars (only for internal domain emails)
+    let senderProfiles = {};
+    if (supabaseAdmin && senderEmails.length > 0) {
+      const EMAIL_DOMAIN = process.env.EMAIL_DOMAIN || 'verygoodmail.tech';
+      const internalSenders = senderEmails.filter(email => email.endsWith(`@${EMAIL_DOMAIN}`));
+      
+      if (internalSenders.length > 0) {
+        const { data: profiles } = await supabaseAdmin
+          .from('profiles')
+          .select('email, full_name, avatar_url')
+          .in('email', internalSenders);
+        
+        if (profiles) {
+          profiles.forEach(p => {
+            senderProfiles[p.email] = p;
+          });
+        }
+      }
+    }
+
+    // Decrypt email content and enrich with sender profile data
     const decryptedEmails = emails.map(email => {
       try {
+        // Get sender profile if available
+        const senderProfile = senderProfiles[email.sender_email];
+        
         return {
           ...email,
           body_text: email.body_text ? encryption.decrypt(email.body_text) : null,
           body_html: email.body_html ? encryption.decrypt(email.body_html) : null,
           snippet: email.snippet ? encryption.decrypt(email.snippet) : null,
-          has_attachments: email.attachments && email.attachments.length > 0
+          has_attachments: email.attachments && email.attachments.length > 0,
+          // Add sender avatar from profile if available
+          sender_avatar_url: senderProfile?.avatar_url || null,
+          // Update sender_name from profile if available (in case it was updated)
+          sender_name: senderProfile?.full_name || email.sender_name,
         };
       } catch (decryptError) {
         // If decryption fails, return original (might be unencrypted legacy data)
-        return email;
+        return {
+          ...email,
+          sender_avatar_url: senderProfiles[email.sender_email]?.avatar_url || null,
+        };
       }
     });
 
@@ -220,7 +254,7 @@ router.get('/:id', async (req, res) => {
 
     const { data: email, error } = await supabase
       .from('emails')
-      .select('*, labels:email_labels(label:labels(*))')
+      .select('*, labels:email_labels(label:labels(*)), attachments(*)')
       .eq('id', id)
       .eq('user_id', user.id)
       .single();
@@ -232,12 +266,29 @@ router.get('/:id', async (req, res) => {
       throw error;
     }
 
-    // Decrypt email content
+    // Lookup sender profile for avatar (if internal sender)
+    let senderProfile = null;
+    if (supabaseAdmin && email.sender_email) {
+      const EMAIL_DOMAIN = process.env.EMAIL_DOMAIN || 'verygoodmail.tech';
+      if (email.sender_email.endsWith(`@${EMAIL_DOMAIN}`)) {
+        const { data: profile } = await supabaseAdmin
+          .from('profiles')
+          .select('email, full_name, avatar_url')
+          .eq('email', email.sender_email)
+          .single();
+        senderProfile = profile;
+      }
+    }
+
+    // Decrypt email content and add sender avatar
     const decryptedEmail = {
       ...email,
       body_text: email.body_text ? encryption.decrypt(email.body_text) : null,
       body_html: email.body_html ? encryption.decrypt(email.body_html) : null,
-      snippet: email.snippet ? encryption.decrypt(email.snippet) : null
+      snippet: email.snippet ? encryption.decrypt(email.snippet) : null,
+      has_attachments: email.attachments && email.attachments.length > 0,
+      sender_avatar_url: senderProfile?.avatar_url || null,
+      sender_name: senderProfile?.full_name || email.sender_name,
     };
 
     res.json(decryptedEmail);
@@ -347,8 +398,27 @@ router.post('/', async (req, res) => {
       });
 
     // Create email
-    // Get sender's display name
-    const senderName = user.user_metadata?.full_name || user.email.split('@')[0];
+    // Get sender's display name and avatar from profile (if available)
+    let senderName = user.user_metadata?.full_name || user.email.split('@')[0];
+    let senderAvatarUrl = user.user_metadata?.avatar_url || null;
+    
+    // Try to get updated profile info from database (more reliable than metadata)
+    if (supabaseAdmin) {
+      const { data: senderProfile } = await supabaseAdmin
+        .from('profiles')
+        .select('full_name, avatar_url')
+        .eq('id', user.id)
+        .single();
+      
+      if (senderProfile) {
+        if (senderProfile.full_name) {
+          senderName = senderProfile.full_name;
+        }
+        if (senderProfile.avatar_url) {
+          senderAvatarUrl = senderProfile.avatar_url;
+        }
+      }
+    }
     
     // Note: ai_classification_source is tracked in memory but not persisted to DB
     // as the column doesn't exist in the schema - this is by design for simplicity
@@ -555,7 +625,8 @@ router.post('/', async (req, res) => {
           body_text,
           body_html,
           snippet,
-          attachments
+          attachments,
+          sender_avatar_url: senderAvatarUrl,
         });
       }
     }
@@ -567,7 +638,8 @@ router.post('/', async (req, res) => {
         body_text,
         body_html,
         snippet,
-        attachments
+        attachments,
+        sender_avatar_url: senderAvatarUrl,
       },
       delivery: {
         internal: internalDeliveries.map(d => d.email),

@@ -36,7 +36,7 @@ export const ALLOWED_MIME_TYPES = [
   'video/webm',
 ];
 
-export type Folder = 'inbox' | 'sent' | 'drafts' | 'spam' | 'trash' | 'starred' | 'important' | 'social' | 'updates' | 'promotions' | 'archive';
+export type Folder = 'inbox' | 'sent' | 'drafts' | 'spam' | 'trash' | 'starred' | 'important' | 'social' | 'updates' | 'promotions' | 'archive' | 'primary';
 
 export interface EmailFilters {
   folder?: Folder;
@@ -138,7 +138,8 @@ class EmailService {
         social: 0,
         updates: 0,
         promotions: 0,
-        archive: 0
+        archive: 0,
+        primary: 0
       };
     }
   }
@@ -282,18 +283,66 @@ class EmailService {
       const safeFileName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
       const filePath = `${session.user.id}/${timestamp}_${safeFileName}`;
 
-      // Upload to Supabase Storage
-      const { data, error } = await supabase.storage
-        .from('media')
-        .upload(filePath, file, {
-          cacheControl: '3600',
-          upsert: false,
-        });
+      // Notify progress started
+      onProgress?.(10);
+
+      // Upload to Supabase Storage with retry logic for network errors
+      let uploadAttempt = 0;
+      const maxRetries = 2;
+      let data;
+      let error;
+
+      while (uploadAttempt <= maxRetries) {
+        const result = await supabase.storage
+          .from('media')
+          .upload(filePath, file, {
+            cacheControl: '3600',
+            upsert: uploadAttempt > 0, // Allow overwrite on retry
+          });
+        
+        data = result.data;
+        error = result.error;
+
+        if (!error) break;
+        
+        // If it's a network error or transient error, retry
+        const errorMsg = error.message?.toLowerCase() || '';
+        if (errorMsg.includes('load failed') || 
+            errorMsg.includes('network') ||
+            errorMsg.includes('timeout') ||
+            errorMsg.includes('fetch')) {
+          uploadAttempt++;
+          if (uploadAttempt <= maxRetries) {
+            onProgress?.(10 + (uploadAttempt * 10));
+            await new Promise(resolve => setTimeout(resolve, 1000 * uploadAttempt));
+            continue;
+          }
+        }
+        break;
+      }
 
       if (error) {
         console.error('Upload error:', error);
-        return { success: false, error: error.message };
+        // Provide user-friendly error messages
+        let userMessage = 'Failed to upload file.';
+        const errorMsg = error.message?.toLowerCase() || '';
+        if (errorMsg.includes('row-level security') || errorMsg.includes('policy')) {
+          userMessage = 'Storage permission denied. Please ensure the "media" bucket is properly configured in Supabase with correct RLS policies.';
+        } else if (errorMsg.includes('load failed') || errorMsg.includes('fetch')) {
+          userMessage = 'Network error during upload. Please check your connection and try again.';
+        } else if (errorMsg.includes('bucket not found')) {
+          userMessage = 'Storage bucket not configured. Please create a "media" bucket in Supabase.';
+        } else if (error.message) {
+          userMessage = error.message;
+        }
+        return { success: false, error: userMessage };
       }
+
+      if (!data) {
+        return { success: false, error: 'Upload failed - no response from server' };
+      }
+
+      onProgress?.(80);
 
       // Get public URL
       const { data: urlData } = supabase.storage
@@ -316,6 +365,12 @@ class EmailService {
       return { success: true, attachment };
     } catch (error) {
       console.error('Error uploading attachment:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const errorMsg = errorMessage.toLowerCase();
+      // Handle specific error types
+      if (errorMsg.includes('load failed') || errorMsg.includes('failed to fetch') || errorMsg.includes('network')) {
+        return { success: false, error: 'Network error. Please check your connection and try again.' };
+      }
       return { success: false, error: 'Failed to upload file. Please try again.' };
     }
   }

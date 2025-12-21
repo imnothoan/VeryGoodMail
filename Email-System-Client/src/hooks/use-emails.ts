@@ -63,6 +63,7 @@ export function useEmails(options: UseEmailsOptions = {}): UseEmailsReturn {
     updates: 0,
     promotions: 0,
     archive: 0,
+    primary: 0,
   });
 
   const totalPages = Math.ceil(totalEmails / perPage);
@@ -116,17 +117,33 @@ export function useEmails(options: UseEmailsOptions = {}): UseEmailsReturn {
     if (!socket || !isConnected) return;
 
     const handleNewEmail = (newEmail: Email) => {
-      // Add new email to the list if in inbox folder
-      if (folder === 'inbox') {
-        setEmails(prev => [newEmail, ...prev]);
+      // Determine which folder this email belongs to
+      const emailCategory = newEmail.ai_category || 'primary';
+      const isInbox = !newEmail.is_sent && !newEmail.is_draft && !newEmail.is_spam && !newEmail.is_trashed;
+      
+      // Add new email to the list if it matches current folder
+      if (isInbox && (folder === 'inbox' || folder === emailCategory || folder === 'primary')) {
+        setEmails(prev => {
+          // Check if email already exists (avoid duplicates)
+          if (prev.some(e => e.id === newEmail.id)) {
+            return prev;
+          }
+          return [newEmail, ...prev];
+        });
         setTotalEmails(prev => prev + 1);
       }
       
-      // Update unread count
+      // Update unread counts
       setUnreadCounts(prev => ({
         ...prev,
         inbox: prev.inbox + 1,
+        [emailCategory]: (prev[emailCategory as keyof typeof prev] || 0) + 1,
       }));
+      
+      // Refresh if not in inbox to ensure counts are accurate
+      if (folder !== 'inbox' && folder !== emailCategory) {
+        fetchUnreadCounts();
+      }
     };
 
     const handleEmailUpdated = (updatedEmail: Email) => {
@@ -148,7 +165,7 @@ export function useEmails(options: UseEmailsOptions = {}): UseEmailsReturn {
       socket.off('new-email', handleNewEmail);
       socket.off('email-updated', handleEmailUpdated);
     };
-  }, [socket, isConnected, folder, selectedEmail?.id]);
+  }, [socket, isConnected, folder, selectedEmail?.id, fetchUnreadCounts]);
 
   // Actions
   const setFolder = useCallback((newFolder: Folder) => {

@@ -106,7 +106,7 @@ class SMTPService {
     // Use SMTP_FROM or SMTP_USER as the actual sender
     // If the user's email is different, use Reply-To header
     const smtpFrom = process.env.SMTP_FROM || process.env.SMTP_USER;
-    const actualFrom = from || smtpFrom;
+    const userRequestedFrom = from || smtpFrom;
     
     const mailOptions = {
       from: smtpFrom, // Always use authenticated SMTP user for 'from'
@@ -115,9 +115,10 @@ class SMTPService {
       text: text || '',
     };
     
-    // If sender is different from SMTP user, add Reply-To header
-    if (actualFrom && actualFrom !== smtpFrom) {
-      mailOptions.replyTo = actualFrom;
+    // If original sender is different from SMTP user, add Reply-To header
+    // This allows recipients to reply directly to the actual sender
+    if (userRequestedFrom && userRequestedFrom !== smtpFrom) {
+      mailOptions.replyTo = userRequestedFrom;
     }
 
     // Add CC if provided

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useCallback, useSyncExternalStore } from 'react';
+import React, { createContext, useContext, useCallback, useSyncExternalStore } from 'react';
 import { vi, en, type Translations, type Language, languages } from '@/lib/i18n';
 
 interface I18nContextType {
@@ -49,13 +49,15 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
     getDefaultLanguage
   );
   
-  const [language, setLanguageState] = useState<Language>(storedLanguage);
+  // Use storedLanguage directly instead of local state to avoid sync issues
+  const language = storedLanguage;
 
   const setLanguage = useCallback((lang: Language) => {
-    setLanguageState(lang);
     localStorage.setItem(STORAGE_KEY, lang);
     // Update HTML lang attribute
     document.documentElement.lang = lang;
+    // Dispatch storage event to trigger useSyncExternalStore update
+    window.dispatchEvent(new StorageEvent('storage', { key: STORAGE_KEY, newValue: lang }));
   }, []);
 
   const value: I18nContextType = {

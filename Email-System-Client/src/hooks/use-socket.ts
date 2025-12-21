@@ -145,7 +145,8 @@ export const useSocket = () => {
             socketInstance.disconnect();
             socketRef.current = null;
         };
-    }, [user, session, joinUserRoom]);
+    }, [user, session]);
+    // Note: joinUserRoom is stable (no deps) and only uses refs, so excluded from deps intentionally
 
     // Manual reconnect function
     const reconnect = useCallback(() => {

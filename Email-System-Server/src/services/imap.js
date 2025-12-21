@@ -612,8 +612,18 @@ class IMAPService {
     const lowerBody = (bodyText || '').toLowerCase();
     const lowerSubject = (subject || '').toLowerCase();
     const lowerSender = (senderEmail || '').toLowerCase();
+    
+    // Check if sender is from our own domain - trusted sender, never spam
+    const EMAIL_DOMAIN = process.env.EMAIL_DOMAIN || 'verygoodmail.tech';
+    const senderDomain = lowerSender.split('@')[1] || '';
+    const isInternalSender = senderDomain === EMAIL_DOMAIN.toLowerCase();
+    
+    // Internal emails from our domain are NEVER spam
+    if (isInternalSender) {
+      return { isSpam: false, aiCategory: 'primary', aiSpamScore: 0 };
+    }
 
-    // Spam detection keywords
+    // Spam detection keywords (only for external emails)
     const spamKeywords = [
       'viagra', 'lottery', 'winner', 'prince', 'inheritance', 
       'urgent transfer', 'million dollars', 'bank account', 'wire transfer',
@@ -631,8 +641,6 @@ class IMAPService {
 
     // Category detection (if not spam)
     if (!isSpam) {
-      const senderDomain = lowerSender.split('@')[1] || '';
-      
       // Social networks
       const socialDomains = ['facebook.com', 'twitter.com', 'linkedin.com', 'instagram.com', 'tiktok.com', 'youtube.com'];
       if (socialDomains.some(d => senderDomain.includes(d))) {

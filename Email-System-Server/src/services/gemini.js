@@ -1,6 +1,6 @@
 /**
  * Gemini AI Service for Email Summarization
- * Uses Google's Gemini 2.0 Flash API for email content summarization
+ * Uses Google's Gemini API for email content summarization
  * 
  * © 2025 VeryGoodMail by Hoàn
  */
@@ -8,7 +8,8 @@
 class GeminiService {
   constructor() {
     this.apiKey = process.env.GEMINI_API_KEY;
-    this.baseUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+    // Use stable Gemini 1.5 Flash model (faster and more reliable)
+    this.baseUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
     this.maxRetries = 3;
     this.retryDelay = 1000;
     this.timeout = 30000; // 30 seconds timeout

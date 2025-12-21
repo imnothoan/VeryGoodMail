@@ -60,6 +60,18 @@ router.post('/summarize', async (req, res) => {
       return res.status(400).json({ error: 'Email body is required' });
     }
 
+    // Check if Gemini is configured
+    if (!process.env.GEMINI_API_KEY) {
+      return res.json({
+        success: false,
+        summary: language === 'vi' 
+          ? 'Trợ lý AI chưa được cấu hình. Vui lòng liên hệ quản trị viên.'
+          : 'AI assistant is not configured. Please contact the administrator.',
+        language,
+        error: 'API key not configured'
+      });
+    }
+
     const result = await geminiService.summarizeEmail(subject, body, language);
     res.json(result);
   } catch (error) {
@@ -69,7 +81,8 @@ router.post('/summarize', async (req, res) => {
       error: 'Failed to summarize email',
       summary: language === 'vi' 
         ? 'Không thể tạo tóm tắt. Vui lòng thử lại sau.'
-        : 'Unable to generate summary. Please try again later.'
+        : 'Unable to generate summary. Please try again later.',
+      language
     });
   }
 });
@@ -86,6 +99,16 @@ router.post('/smart-reply', async (req, res) => {
       return res.status(400).json({ error: 'Email content is required' });
     }
 
+    // Check if Gemini is configured
+    if (!process.env.GEMINI_API_KEY) {
+      return res.json({
+        success: false,
+        replies: [],
+        language,
+        error: 'API key not configured'
+      });
+    }
+
     const result = await geminiService.generateSmartReplies(content, language);
     res.json(result);
   } catch (error) {
@@ -93,7 +116,8 @@ router.post('/smart-reply', async (req, res) => {
     res.status(500).json({ 
       success: false,
       error: 'Failed to generate smart replies',
-      replies: []
+      replies: [],
+      language
     });
   }
 });

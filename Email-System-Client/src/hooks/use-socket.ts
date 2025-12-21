@@ -11,20 +11,27 @@ const SOCKET_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 const DISCONNECT_REASONS = {
     SERVER_INITIATED: 'io server disconnect',
     CLIENT_INITIATED: 'io client disconnect',
+    TRANSPORT_CLOSE: 'transport close',
+    TRANSPORT_ERROR: 'transport error',
+    PING_TIMEOUT: 'ping timeout',
 } as const;
 
 // Socket configuration for stable connection
 const SOCKET_CONFIG = {
-    transports: ['websocket', 'polling'], // Fallback to polling if websocket fails
+    // Start with websocket, fallback to polling only if needed
+    transports: ['websocket', 'polling'],
+    upgrade: true,
     autoConnect: false, // Manual connect after auth
+    // Reconnection settings (exponential backoff)
     reconnection: true,
-    reconnectionAttempts: 10,
+    reconnectionAttempts: Infinity, // Keep trying
     reconnectionDelay: 1000,
-    reconnectionDelayMax: 10000,
+    reconnectionDelayMax: 30000,
+    randomizationFactor: 0.5,
+    // Timeouts
     timeout: 20000,
-    // Heartbeat settings
-    pingInterval: 25000,
-    pingTimeout: 60000,
+    // Heartbeat settings - must match server
+    // Note: These are client-side only hints
 };
 
 export const useSocket = () => {
@@ -32,8 +39,10 @@ export const useSocket = () => {
     const [socket, setSocket] = useState<Socket | null>(null);
     const [isConnected, setIsConnected] = useState(false);
     const [connectionError, setConnectionError] = useState<string | null>(null);
+    const [reconnectAttempt, setReconnectAttempt] = useState(0);
     const socketRef = useRef<Socket | null>(null);
     const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const isOnlineRef = useRef(typeof navigator !== 'undefined' ? navigator.onLine : true);
     
     // Use a ref to track user ID to avoid dependency issues
     const userIdRef = useRef<string | undefined>(undefined);
@@ -50,6 +59,51 @@ export const useSocket = () => {
         }
     }, []);
 
+    // Handle online/offline events for better reconnection
+    useEffect(() => {
+        const handleOnline = () => {
+            console.log('Network: online');
+            isOnlineRef.current = true;
+            // Try to reconnect if we have a socket but it's disconnected
+            if (socketRef.current && !socketRef.current.connected) {
+                console.log('Attempting reconnect after coming online...');
+                socketRef.current.connect();
+            }
+        };
+
+        const handleOffline = () => {
+            console.log('Network: offline');
+            isOnlineRef.current = false;
+            setConnectionError('You are offline');
+        };
+
+        window.addEventListener('online', handleOnline);
+        window.addEventListener('offline', handleOffline);
+
+        return () => {
+            window.removeEventListener('online', handleOnline);
+            window.removeEventListener('offline', handleOffline);
+        };
+    }, []);
+
+    // Handle visibility change - reconnect when tab becomes visible
+    useEffect(() => {
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'visible' && socketRef.current) {
+                // Tab became visible, check connection
+                if (!socketRef.current.connected && isOnlineRef.current) {
+                    console.log('Tab visible, reconnecting...');
+                    socketRef.current.connect();
+                }
+            }
+        };
+
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        return () => {
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+        };
+    }, []);
+
     useEffect(() => {
         // Only connect when we have a valid user session
         if (!user || !session) {
@@ -62,6 +116,8 @@ export const useSocket = () => {
             requestAnimationFrame(() => {
                 setSocket(null);
                 setIsConnected(false);
+                setConnectionError(null);
+                setReconnectAttempt(0);
             });
             return;
         }
@@ -87,6 +143,7 @@ export const useSocket = () => {
             console.log('Socket connected:', socketInstance.id);
             setIsConnected(true);
             setConnectionError(null);
+            setReconnectAttempt(0);
             joinUserRoom(socketInstance);
         });
 
@@ -95,17 +152,31 @@ export const useSocket = () => {
             setIsConnected(false);
             
             // Handle specific disconnect reasons
-            if (reason === DISCONNECT_REASONS.SERVER_INITIATED) {
-                // Server initiated disconnect, try to reconnect
-                socketInstance.connect();
+            switch (reason) {
+                case DISCONNECT_REASONS.SERVER_INITIATED:
+                    // Server initiated disconnect, try to reconnect immediately
+                    console.log('Server disconnected us, reconnecting...');
+                    socketInstance.connect();
+                    break;
+                case DISCONNECT_REASONS.TRANSPORT_CLOSE:
+                case DISCONNECT_REASONS.TRANSPORT_ERROR:
+                    // Network issue - will auto-reconnect
+                    setConnectionError('Connection lost, reconnecting...');
+                    break;
+                case DISCONNECT_REASONS.PING_TIMEOUT:
+                    // Server didn't respond to ping - will auto-reconnect
+                    setConnectionError('Server not responding, reconnecting...');
+                    break;
+                // CLIENT_INITIATED means we called disconnect() intentionally
             }
-            // DISCONNECT_REASONS.CLIENT_INITIATED means we called disconnect() intentionally
-            // Other reasons will trigger automatic reconnection
         });
 
         socketInstance.on('connect_error', (error) => {
             console.error('Socket connection error:', error.message);
-            setConnectionError(error.message);
+            // Don't show error if we're offline
+            if (isOnlineRef.current) {
+                setConnectionError(`Connection failed: ${error.message}`);
+            }
             setIsConnected(false);
         });
 
@@ -113,11 +184,13 @@ export const useSocket = () => {
             console.log('Socket reconnected after', attemptNumber, 'attempts');
             setIsConnected(true);
             setConnectionError(null);
+            setReconnectAttempt(0);
             joinUserRoom(socketInstance);
         });
 
         socketInstance.on('reconnect_attempt', (attemptNumber) => {
             console.log('Socket reconnection attempt:', attemptNumber);
+            setReconnectAttempt(attemptNumber);
         });
 
         socketInstance.on('reconnect_error', (error) => {
@@ -125,12 +198,21 @@ export const useSocket = () => {
         });
 
         socketInstance.on('reconnect_failed', () => {
-            console.error('Socket reconnection failed');
-            setConnectionError('Unable to connect to server');
+            console.error('Socket reconnection failed after max attempts');
+            setConnectionError('Unable to connect to server. Please refresh the page.');
         });
 
-        // Start connection
-        socketInstance.connect();
+        // Handle room joined confirmation
+        socketInstance.on('room-joined', (data: { userId: string; success: boolean }) => {
+            if (data.success) {
+                console.log('Joined user room successfully');
+            }
+        });
+
+        // Start connection only if online
+        if (isOnlineRef.current) {
+            socketInstance.connect();
+        }
         setSocket(socketInstance);
 
         return () => {
@@ -150,7 +232,8 @@ export const useSocket = () => {
 
     // Manual reconnect function
     const reconnect = useCallback(() => {
-        if (socketRef.current && !socketRef.current.connected) {
+        if (socketRef.current && !socketRef.current.connected && isOnlineRef.current) {
+            setConnectionError(null);
             socketRef.current.connect();
         }
     }, []);
@@ -159,6 +242,7 @@ export const useSocket = () => {
         socket, 
         isConnected, 
         connectionError,
+        reconnectAttempt,
         reconnect 
     };
 };

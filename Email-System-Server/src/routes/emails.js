@@ -341,6 +341,8 @@ router.post('/', async (req, res) => {
       });
 
     // Create email
+    // Note: ai_classification_source is tracked in memory but not persisted to DB
+    // as the column doesn't exist in the schema - this is by design for simplicity
     const emailData = {
       id: emailId,
       thread_id: threadId,
@@ -360,7 +362,6 @@ router.post('/', async (req, res) => {
       ai_category: aiCategory,
       ai_spam_score: aiSpamScore,
       ai_sentiment: aiSentiment,
-      ai_classification_source: classificationSource,
       date: new Date().toISOString()
     };
 
@@ -441,6 +442,7 @@ router.post('/', async (req, res) => {
           });
         
         // Create email copy for recipient
+        // Note: ai_classification_source tracked in memory only
         const recipientEmailData = {
           id: recipientEmailId,
           thread_id: recipientThreadId,
@@ -460,7 +462,6 @@ router.post('/', async (req, res) => {
           ai_category: aiCategory,
           ai_spam_score: aiSpamScore,
           ai_sentiment: aiSentiment,
-          ai_classification_source: classificationSource,
           is_read: false,
           date: new Date().toISOString()
         };
@@ -556,7 +557,35 @@ router.post('/', async (req, res) => {
     });
   } catch (error) {
     console.error('Error creating email:', error);
-    res.status(500).json({ error: 'Failed to create email' });
+    
+    // Provide more helpful error messages based on error type
+    let errorMessage = 'Failed to create email';
+    let statusCode = 500;
+    
+    if (error.code === '23503') {
+      // Foreign key violation
+      errorMessage = 'Invalid reference: user or thread not found';
+      statusCode = 400;
+    } else if (error.code === '23505') {
+      // Unique constraint violation
+      errorMessage = 'Email already exists';
+      statusCode = 409;
+    } else if (error.code === '42703') {
+      // Unknown column
+      errorMessage = 'Database schema mismatch - please contact support';
+      statusCode = 500;
+    } else if (error.message?.includes('ENCRYPTION_KEY')) {
+      errorMessage = 'Server configuration error - encryption not set up';
+      statusCode = 500;
+    } else if (error.message) {
+      // Don't leak internal error details in production
+      const isDev = process.env.NODE_ENV === 'development';
+      if (isDev) {
+        errorMessage = error.message;
+      }
+    }
+    
+    res.status(statusCode).json({ error: errorMessage });
   }
 });
 

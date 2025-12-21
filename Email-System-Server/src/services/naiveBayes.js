@@ -7,7 +7,7 @@ const natural = require('natural');
 class NaiveBayesClassifier {
   constructor() {
     this.classifier = new natural.BayesClassifier();
-    this.isTrainad = false;
+    this.isTrained = false;
     this.categories = {
       SPAM: 'spam',
       HAM: 'ham',       // Normal email

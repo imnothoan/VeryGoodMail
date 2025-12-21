@@ -8,16 +8,22 @@ const phobertService = require('../services/phobert');
 const naiveBayes = require('../services/naiveBayes'); // Fallback classifier
 
 // Create admin Supabase client for cross-user operations
-const supabaseAdmin = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY,
-  {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false
+// Only create if credentials are provided
+let supabaseAdmin = null;
+if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  supabaseAdmin = createClient(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY,
+    {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false
+      }
     }
-  }
-);
+  );
+} else {
+  console.warn('⚠ SUPABASE_SERVICE_ROLE_KEY not configured - some features may be limited');
+}
 
 /**
  * GET /api/emails/counts/unread
@@ -403,7 +409,7 @@ router.post('/', async (req, res) => {
       const EMAIL_DOMAIN = process.env.EMAIL_DOMAIN || 'verygoodmail.tech';
       
       for (const recipientEmail of to) {
-        if (recipientEmail.endsWith(`@${EMAIL_DOMAIN}`)) {
+        if (recipientEmail.endsWith(`@${EMAIL_DOMAIN}`) && supabaseAdmin) {
           // Internal recipient - check if user exists using admin client
           const { data: recipientProfile } = await supabaseAdmin
             .from('profiles')
@@ -426,70 +432,72 @@ router.post('/', async (req, res) => {
       }
 
       // Create copies for internal recipients (in their inbox) using admin client
-      for (const recipient of internalDeliveries) {
-        const recipientEmailId = uuidv4();
-        const recipientThreadId = uuidv4();
-        
-        // Create thread for recipient
-        await supabaseAdmin
-          .from('threads')
-          .insert({
-            id: recipientThreadId,
+      if (supabaseAdmin && internalDeliveries.length > 0) {
+        for (const recipient of internalDeliveries) {
+          const recipientEmailId = uuidv4();
+          const recipientThreadId = uuidv4();
+          
+          // Create thread for recipient
+          await supabaseAdmin
+            .from('threads')
+            .insert({
+              id: recipientThreadId,
+              user_id: recipient.userId,
+              subject: subject || '(No subject)',
+              snippet: encryptedSnippet,
+              last_message_at: new Date().toISOString()
+            });
+          
+          // Create email copy for recipient
+          // Note: ai_classification_source tracked in memory only
+          const recipientEmailData = {
+            id: recipientEmailId,
+            thread_id: recipientThreadId,
             user_id: recipient.userId,
+            sender_name: user.user_metadata?.full_name || user.email,
+            sender_email: user.email,
+            recipient_emails: to || [],
+            cc_emails: cc || [],
+            bcc_emails: bcc || [],
             subject: subject || '(No subject)',
             snippet: encryptedSnippet,
-            last_message_at: new Date().toISOString()
-          });
-        
-        // Create email copy for recipient
-        // Note: ai_classification_source tracked in memory only
-        const recipientEmailData = {
-          id: recipientEmailId,
-          thread_id: recipientThreadId,
-          user_id: recipient.userId,
-          sender_name: user.user_metadata?.full_name || user.email,
-          sender_email: user.email,
-          recipient_emails: to || [],
-          cc_emails: cc || [],
-          bcc_emails: bcc || [],
-          subject: subject || '(No subject)',
-          snippet: encryptedSnippet,
-          body_text: encryptedBody,
-          body_html: encryptedHtml,
-          is_draft: false,
-          is_sent: false, // This is received, not sent
-          is_spam: isSpam,
-          ai_category: aiCategory,
-          ai_spam_score: aiSpamScore,
-          ai_sentiment: aiSentiment,
-          is_read: false,
-          date: new Date().toISOString()
-        };
+            body_text: encryptedBody,
+            body_html: encryptedHtml,
+            is_draft: false,
+            is_sent: false, // This is received, not sent
+            is_spam: isSpam,
+            ai_category: aiCategory,
+            ai_spam_score: aiSpamScore,
+            ai_sentiment: aiSentiment,
+            is_read: false,
+            date: new Date().toISOString()
+          };
 
-        const { error: recipientError } = await supabaseAdmin
-          .from('emails')
-          .insert(recipientEmailData);
+          const { error: recipientError } = await supabaseAdmin
+            .from('emails')
+            .insert(recipientEmailData);
 
-        if (recipientError) {
-          console.error('Failed to deliver to internal recipient:', recipient.email, recipientError);
-        } else {
-          console.log('Email delivered to internal recipient:', recipient.email);
-          
-          // Copy attachments for recipient
-          if (attachments.length > 0) {
-            const recipientAttachments = attachments.map(att => ({
-              id: uuidv4(),
-              email_id: recipientEmailId,
-              user_id: recipient.userId,
-              filename: att.filename,
-              content_type: att.content_type,
-              size_bytes: att.size_bytes,
-              storage_path: att.storage_path,
-            }));
+          if (recipientError) {
+            console.error('Failed to deliver to internal recipient:', recipient.email, recipientError);
+          } else {
+            console.log('Email delivered to internal recipient:', recipient.email);
+            
+            // Copy attachments for recipient
+            if (attachments.length > 0) {
+              const recipientAttachments = attachments.map(att => ({
+                id: uuidv4(),
+                email_id: recipientEmailId,
+                user_id: recipient.userId,
+                filename: att.filename,
+                content_type: att.content_type,
+                size_bytes: att.size_bytes,
+                storage_path: att.storage_path,
+              }));
 
-            await supabaseAdmin
-              .from('attachments')
-              .insert(recipientAttachments);
+              await supabaseAdmin
+                .from('attachments')
+                .insert(recipientAttachments);
+            }
           }
         }
       }

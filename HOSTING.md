@@ -102,6 +102,13 @@ SMTP_SECURE=false
 SMTP_USER=admin@verygoodmail.tech
 SMTP_PASS=your_titan_password_here
 SMTP_FROM="VeryGoodMail <admin@verygoodmail.tech>"
+
+# IMAP Configuration for receiving emails (real-time)
+IMAP_HOST=imap.titan.email
+IMAP_PORT=993
+IMAP_SECURE=true
+IMAP_USER=admin@verygoodmail.tech
+IMAP_PASS=your_titan_password_here
 ```
 
 ### 2.4 Kiểm tra SMTP hoạt động
@@ -110,11 +117,23 @@ Sau khi cấu hình, kiểm tra SMTP bằng cách:
 2. Xem console log: Nếu thấy `✓ SMTP connection verified` là thành công
 3. Nếu thấy `✗ SMTP connection failed` - kiểm tra lại credentials
 
-### 2.5 Gửi email ra ngoài (Gmail, Outlook, etc.)
+### 2.5 Kiểm tra IMAP hoạt động (Nhận email)
+Sau khi cấu hình IMAP:
+1. Khởi động server: `npm start`
+2. Xem console log: Nếu thấy `✓ IMAP IDLE active - listening for incoming emails` là thành công
+3. Hệ thống sẽ tự động nhận email từ bên ngoài (Gmail, Outlook, etc.) trong **real-time** (< 1 giây)
+
+### 2.6 Gửi email ra ngoài (Gmail, Outlook, etc.)
 Khi người dùng gửi email đến địa chỉ không phải @verygoodmail.tech:
 - Hệ thống tự động sử dụng SMTP để gửi qua Titan
 - Email được gửi với `From: admin@verygoodmail.tech`
 - `Reply-To` được đặt là email của người gửi thực
+
+### 2.7 Nhận email từ bên ngoài (Gmail, Outlook, etc.)
+Khi ai đó gửi email đến @verygoodmail.tech:
+- Hệ thống sử dụng IMAP IDLE để nhận email **real-time**
+- Email được tự động phân loại (spam, social, promotions, etc.)
+- Người dùng nhận thông báo ngay lập tức qua WebSocket
 
 ## 🚀 Bước 3: Deploy Frontend (Vercel)
 
@@ -319,10 +338,12 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 - [ ] Supabase database setup
 - [ ] Storage bucket tạo xong
 - [ ] Environment variables đầy đủ
-- [ ] SMTP gửi email được
+- [ ] SMTP gửi email được (gửi ra ngoài)
+- [ ] IMAP nhận email được (nhận từ bên ngoài)
 - [ ] Đăng ký/đăng nhập hoạt động
 - [ ] Gửi email nội bộ hoạt động
 - [ ] Gửi email ra ngoài hoạt động
+- [ ] Nhận email từ bên ngoài hoạt động (real-time)
 
 ## 🐛 Troubleshooting
 

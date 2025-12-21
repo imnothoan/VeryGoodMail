@@ -10,6 +10,7 @@ const { Server } = require('socket.io');
 const emailRoutes = require('./routes/emails');
 const aiRoutes = require('./routes/ai');
 const authMiddleware = require('./middleware/auth');
+const imapService = require('./services/imap');
 
 const app = express();
 const httpServer = createServer(app);
@@ -60,11 +61,18 @@ app.use(express.urlencoded({ extended: true }));
 
 // Health check endpoint
 app.get('/health', (req, res) => {
+  const imapStatus = imapService.getStatus();
   res.json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
     version: '1.0.0',
-    socketConnections: io.engine.clientsCount || 0
+    socketConnections: io.engine.clientsCount || 0,
+    imap: {
+      configured: imapStatus.configured,
+      connected: imapStatus.connected,
+      listening: imapStatus.listening,
+      emailsReceived: imapStatus.stats?.emailsReceived || 0,
+    }
   });
 });
 
@@ -157,9 +165,15 @@ const cleanupInterval = setInterval(() => {
 }, 5 * 60 * 1000);
 
 // Graceful shutdown handler
-function gracefulShutdown() {
+async function gracefulShutdown() {
   console.log('Shutting down server gracefully...');
   clearInterval(cleanupInterval);
+  
+  // Stop IMAP service first
+  if (imapService.isListening) {
+    console.log('Stopping IMAP service...');
+    await imapService.stopListening();
+  }
   
   io.close(() => {
     console.log('Socket.IO closed');
@@ -193,7 +207,7 @@ app.use((req, res) => {
 
 const PORT = process.env.PORT || 3001;
 
-httpServer.listen(PORT, () => {
+httpServer.listen(PORT, async () => {
   console.log(`
 ╔════════════════════════════════════════════════════════╗
 ║                                                        ║
@@ -206,6 +220,20 @@ httpServer.listen(PORT, () => {
 ║                                                        ║
 ╚════════════════════════════════════════════════════════╝
   `);
+
+  // Start IMAP service for receiving external emails (real-time with IDLE)
+  if (imapService.isConfigured) {
+    console.log('Starting IMAP service for real-time email receiving...');
+    const started = await imapService.startListening(io);
+    if (started) {
+      console.log('✓ IMAP IDLE active - listening for incoming emails');
+    } else {
+      console.warn('⚠ IMAP service failed to start');
+    }
+  } else {
+    console.log('ℹ IMAP not configured - external email receiving disabled');
+    console.log('  To enable, set IMAP_HOST, IMAP_USER, IMAP_PASS in .env');
+  }
 });
 
-module.exports = { app, io };
+module.exports = { app, io, imapService };

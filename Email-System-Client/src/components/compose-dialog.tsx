@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button"
 import {
     Dialog,
     DialogContent,
+    DialogDescription,
     DialogFooter,
     DialogHeader,
     DialogTitle,
@@ -265,9 +266,12 @@ export function ComposeDialog({ children }: ComposeDialogProps) {
     return (
         <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>{children}</DialogTrigger>
-            <DialogContent className="sm:max-w-[600px]">
+            <DialogContent className="sm:max-w-[600px]" aria-describedby="compose-dialog-description">
                 <DialogHeader>
                     <DialogTitle>{t.mail.newMessage}</DialogTitle>
+                    <DialogDescription id="compose-dialog-description" className="sr-only">
+                        {language === 'vi' ? 'Soạn email mới để gửi' : 'Compose a new email to send'}
+                    </DialogDescription>
                 </DialogHeader>
                 <Form {...form}>
                     <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">

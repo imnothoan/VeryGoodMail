@@ -62,31 +62,57 @@ export function ComposeDialog({ children }: ComposeDialogProps) {
         },
     })
 
-    // Cleanup orphaned files when dialog closes without sending
-    const cleanupOrphanedFiles = React.useCallback(async () => {
-        // Only cleanup if email was NOT sent successfully
-        if (emailSentSuccessfully) return
-        
-        // Delete uploaded files that weren't sent
-        const successfulUploads = attachments.filter(a => a.status === 'done' && a.attachment?.storage_path)
-        for (const upload of successfulUploads) {
-            if (upload.attachment?.storage_path) {
-                await emailService.deleteAttachment(upload.attachment.storage_path)
-            }
-        }
-    }, [attachments, emailSentSuccessfully])
+    // Refs to track state for cleanup without causing re-renders
+    const attachmentsRef = React.useRef<UploadedFile[]>([])
+    const emailSentRef = React.useRef(false)
+
+    // Keep refs in sync with state
+    React.useEffect(() => {
+        attachmentsRef.current = attachments
+    }, [attachments])
+
+    React.useEffect(() => {
+        emailSentRef.current = emailSentSuccessfully
+    }, [emailSentSuccessfully])
 
     // Reset form and attachments when dialog closes
+    // Note: We intentionally exclude 'form' from dependencies to prevent infinite loops
+    // The form.reset() call is safe here because it's only triggered on dialog close
     React.useEffect(() => {
         if (!open) {
-            // Cleanup any uploaded files that weren't sent
-            cleanupOrphanedFiles()
-            form.reset()
-            setAttachments([])
-            setUploadError(null)
-            setEmailSentSuccessfully(false)
+            // Cleanup any uploaded files that weren't sent (using refs to avoid dependency issues)
+            const cleanup = async () => {
+                // Only cleanup if email was NOT sent successfully
+                if (emailSentRef.current) return
+                
+                // Delete uploaded files that weren't sent
+                const successfulUploads = attachmentsRef.current.filter(
+                    a => a.status === 'done' && a.attachment?.storage_path
+                )
+                for (const upload of successfulUploads) {
+                    if (upload.attachment?.storage_path) {
+                        await emailService.deleteAttachment(upload.attachment.storage_path)
+                    }
+                }
+            }
+            
+            cleanup()
+            
+            // Reset form state after a short delay to avoid race conditions
+            // Use requestAnimationFrame for better performance
+            requestAnimationFrame(() => {
+                form.reset({
+                    to: "",
+                    subject: "",
+                    body: "",
+                })
+                setAttachments([])
+                setUploadError(null)
+                setEmailSentSuccessfully(false)
+            })
         }
-    }, [open, form, cleanupOrphanedFiles])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [open]) // Only depend on 'open' to prevent infinite loops
 
     const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
         const files = event.target.files

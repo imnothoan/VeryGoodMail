@@ -102,12 +102,24 @@ class SMTPService {
     }
 
     // Build mail options
+    // SMTP servers typically require 'from' to match the authenticated user
+    // Use SMTP_FROM or SMTP_USER as the actual sender
+    // If the user's email is different, use Reply-To header
+    const smtpFrom = process.env.SMTP_FROM || process.env.SMTP_USER;
+    const userRequestedFrom = from || smtpFrom;
+    
     const mailOptions = {
-      from: from || process.env.SMTP_FROM || process.env.SMTP_USER,
+      from: smtpFrom, // Always use authenticated SMTP user for 'from'
       to: Array.isArray(to) ? to.join(', ') : to,
       subject: subject || '(No subject)',
       text: text || '',
     };
+    
+    // If original sender is different from SMTP user, add Reply-To header
+    // This allows recipients to reply directly to the actual sender
+    if (userRequestedFrom && userRequestedFrom !== smtpFrom) {
+      mailOptions.replyTo = userRequestedFrom;
+    }
 
     // Add CC if provided
     if (cc && cc.length > 0) {

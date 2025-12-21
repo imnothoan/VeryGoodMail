@@ -73,29 +73,48 @@ TTL: 3600
 ## 📧 Bước 2: Cấu hình Titan Email
 
 ### 2.1 Tạo tài khoản Email trên Titan
-1. Đăng nhập vào Titan Admin Panel (từ nơi bạn mua domain)
+1. Đăng nhập vào Titan Admin Panel (từ nhà cung cấp domain)
 2. Chọn "Create Email Account"
 3. Tạo tài khoản admin: `admin@verygoodmail.tech`
 4. Lưu mật khẩu an toàn
+5. **Quan trọng**: Đợi 15-30 phút để DNS propagate trước khi test
 
 ### 2.2 Lấy thông tin SMTP
 ```
 SMTP Host: smtp.titan.email
 SMTP Port: 587 (TLS) hoặc 465 (SSL)
 Username: admin@verygoodmail.tech
-Password: <mật khẩu bạn tạo>
+Password: <mật khẩu bạn tạo ở bước 2.1>
 ```
 
 ### 2.3 Cập nhật Server .env
+
+**⚠️ LƯU Ý QUAN TRỌNG:**
+- `SMTP_USER` phải là email bạn tạo trên Titan (vd: `admin@verygoodmail.tech`)
+- `SMTP_PASS` là mật khẩu của email Titan đó
+- `SMTP_FROM` nên khớp với `SMTP_USER` để email không bị đánh spam
+
 ```env
 # SMTP Configuration for Titan Email
 SMTP_HOST=smtp.titan.email
 SMTP_PORT=587
 SMTP_SECURE=false
 SMTP_USER=admin@verygoodmail.tech
-SMTP_PASS=your_titan_password
+SMTP_PASS=your_titan_password_here
 SMTP_FROM="VeryGoodMail <admin@verygoodmail.tech>"
 ```
+
+### 2.4 Kiểm tra SMTP hoạt động
+Sau khi cấu hình, kiểm tra SMTP bằng cách:
+1. Khởi động server: `npm start`
+2. Xem console log: Nếu thấy `✓ SMTP connection verified` là thành công
+3. Nếu thấy `✗ SMTP connection failed` - kiểm tra lại credentials
+
+### 2.5 Gửi email ra ngoài (Gmail, Outlook, etc.)
+Khi người dùng gửi email đến địa chỉ không phải @verygoodmail.tech:
+- Hệ thống tự động sử dụng SMTP để gửi qua Titan
+- Email được gửi với `From: admin@verygoodmail.tech`
+- `Reply-To` được đặt là email của người gửi thực
 
 ## 🚀 Bước 3: Deploy Frontend (Vercel)
 

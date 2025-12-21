@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useCallback, useSyncExternalStore } from 'react';
 import { vi, en, type Translations, type Language, languages } from '@/lib/i18n';
 
 interface I18nContextType {
@@ -16,30 +16,48 @@ const I18nContext = createContext<I18nContextType | undefined>(undefined);
 
 const STORAGE_KEY = 'verygoodmail-language';
 
-export function I18nProvider({ children }: { children: React.ReactNode }) {
-  const [language, setLanguageState] = useState<Language>('vi');
+// Helper to get initial language (for server/hydration)
+function getDefaultLanguage(): Language {
+  return 'vi';
+}
 
-  // Load saved language preference
-  useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY) as Language | null;
-    if (saved && (saved === 'vi' || saved === 'en')) {
-      setLanguageState(saved);
-    } else {
-      // Auto-detect browser language
-      const browserLang = navigator.language.toLowerCase();
-      if (browserLang.startsWith('vi')) {
-        setLanguageState('vi');
-      } else {
-        setLanguageState('en');
-      }
-    }
-  }, []);
+// Helper to get language from localStorage (client-side)
+function getStoredLanguage(): Language {
+  if (typeof window === 'undefined') return getDefaultLanguage();
+  
+  const saved = localStorage.getItem(STORAGE_KEY) as Language | null;
+  if (saved && (saved === 'vi' || saved === 'en')) {
+    return saved;
+  }
+  
+  // Auto-detect browser language
+  const browserLang = navigator.language.toLowerCase();
+  return browserLang.startsWith('vi') ? 'vi' : 'en';
+}
+
+// Custom subscribe for useSyncExternalStore
+function subscribeToStorage(callback: () => void) {
+  window.addEventListener('storage', callback);
+  return () => window.removeEventListener('storage', callback);
+}
+
+export function I18nProvider({ children }: { children: React.ReactNode }) {
+  // Use useSyncExternalStore to properly sync with localStorage
+  const storedLanguage = useSyncExternalStore(
+    subscribeToStorage,
+    getStoredLanguage,
+    getDefaultLanguage
+  );
+  
+  // Use storedLanguage directly instead of local state to avoid sync issues
+  const language = storedLanguage;
 
   const setLanguage = useCallback((lang: Language) => {
-    setLanguageState(lang);
     localStorage.setItem(STORAGE_KEY, lang);
     // Update HTML lang attribute
     document.documentElement.lang = lang;
+    // Dispatch storage event to trigger useSyncExternalStore update
+    window.dispatchEvent(new StorageEvent('storage', { key: STORAGE_KEY, newValue: lang }));
   }, []);
 
   const value: I18nContextType = {

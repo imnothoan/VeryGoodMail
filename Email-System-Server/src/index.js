@@ -141,7 +141,7 @@ io.on('connection', (socket) => {
 });
 
 // Periodic cleanup of stale connections (every 5 minutes)
-setInterval(() => {
+const cleanupInterval = setInterval(() => {
   const now = Date.now();
   const timeout = 5 * 60 * 1000; // 5 minutes
   
@@ -155,6 +155,23 @@ setInterval(() => {
     }
   });
 }, 5 * 60 * 1000);
+
+// Graceful shutdown handler
+function gracefulShutdown() {
+  console.log('Shutting down server gracefully...');
+  clearInterval(cleanupInterval);
+  
+  io.close(() => {
+    console.log('Socket.IO closed');
+    httpServer.close(() => {
+      console.log('HTTP server closed');
+      process.exit(0);
+    });
+  });
+}
+
+process.on('SIGTERM', gracefulShutdown);
+process.on('SIGINT', gracefulShutdown);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

@@ -65,8 +65,9 @@ class EmailService {
 
       return await response.json();
     } catch (error) {
-      console.error('Error fetching emails:', error);
-      // Return empty result instead of throwing
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.error('Error fetching emails:', errorMessage);
+      // Return empty result with error information for debugging
       return {
         emails: [],
         pagination: { page: 1, limit: 50, total: 0 }

@@ -4,6 +4,12 @@ import { useAuth } from '@/contexts/auth-context';
 
 const SOCKET_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
+// Socket disconnect reasons from Socket.IO
+const DISCONNECT_REASONS = {
+    SERVER_INITIATED: 'io server disconnect',
+    CLIENT_INITIATED: 'io client disconnect',
+} as const;
+
 // Socket configuration for stable connection
 const SOCKET_CONFIG = {
     transports: ['websocket', 'polling'], // Fallback to polling if websocket fails
@@ -74,11 +80,11 @@ export const useSocket = () => {
             setIsConnected(false);
             
             // Handle specific disconnect reasons
-            if (reason === 'io server disconnect') {
+            if (reason === DISCONNECT_REASONS.SERVER_INITIATED) {
                 // Server initiated disconnect, try to reconnect
                 socketInstance.connect();
             }
-            // 'io client disconnect' means we called disconnect() intentionally
+            // DISCONNECT_REASONS.CLIENT_INITIATED means we called disconnect() intentionally
             // Other reasons will trigger automatic reconnection
         });
 

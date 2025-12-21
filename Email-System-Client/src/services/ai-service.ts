@@ -2,6 +2,11 @@ import { supabase } from '@/lib/supabase';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
+// Constants for AI fallback values
+const DEFAULT_CONFIDENCE = 0.5;
+const DEFAULT_CATEGORY = 'primary';
+const DEFAULT_SENTIMENT = 'neutral' as const;
+
 export interface SummarizeResult {
   success: boolean;
   summary: string;
@@ -145,11 +150,11 @@ class AIService {
       // Return fallback result
       return {
         is_spam: false,
-        spam_confidence: 0.5,
-        category: 'primary',
-        category_confidence: 0.5,
-        sentiment: 'neutral',
-        sentiment_confidence: 0.5,
+        spam_confidence: DEFAULT_CONFIDENCE,
+        category: DEFAULT_CATEGORY,
+        category_confidence: DEFAULT_CONFIDENCE,
+        sentiment: DEFAULT_SENTIMENT,
+        sentiment_confidence: DEFAULT_CONFIDENCE,
         fallback: true,
       };
     }

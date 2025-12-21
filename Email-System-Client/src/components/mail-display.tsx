@@ -124,11 +124,28 @@ export function MailDisplay({
         if (!replyText.trim() || !mail) return
         setIsSending(true)
         
-        // TODO: Implement actual send functionality
-        await new Promise(resolve => setTimeout(resolve, 1000))
-        
-        setReplyText("")
-        setIsSending(false)
+        try {
+            // Import emailService dynamically to avoid circular dependencies
+            const { emailService } = await import("@/services/email-service")
+            
+            const result = await emailService.sendEmail({
+                to: [mail.sender_email],
+                subject: mail.subject.startsWith('Re:') ? mail.subject : `Re: ${mail.subject}`,
+                body_text: replyText,
+            })
+
+            if (result.success) {
+                setReplyText("")
+                // Show success feedback
+                console.log('Reply sent successfully')
+            } else {
+                console.error('Failed to send reply:', result.error)
+            }
+        } catch (error) {
+            console.error('Error sending reply:', error)
+        } finally {
+            setIsSending(false)
+        }
     }
 
     return (

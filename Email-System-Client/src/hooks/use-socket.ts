@@ -24,7 +24,7 @@ const SOCKET_CONFIG = {
     autoConnect: false, // Manual connect after auth
     // Reconnection settings (exponential backoff)
     reconnection: true,
-    reconnectionAttempts: Infinity, // Keep trying
+    reconnectionAttempts: 50, // High but finite to prevent resource exhaustion
     reconnectionDelay: 1000,
     reconnectionDelayMax: 30000,
     randomizationFactor: 0.5,

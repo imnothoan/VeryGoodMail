@@ -20,14 +20,30 @@ const { v4: uuidv4 } = require('uuid');
 const { createClient } = require('@supabase/supabase-js');
 const encryption = require('../utils/encryption');
 
+// Configuration constants
+const BACKOFF_MULTIPLIER = 1.5;
+const MAX_BACKOFF_DELAY = 60000; // 60 seconds max
+const UID_CACHE_MAX_SIZE = 10000;
+const UID_CACHE_CLEANUP_SIZE = 5000;
+
 class IMAPService {
   constructor() {
     // Check for required environment variables
+    // IMAP_HOST, IMAP_USER, IMAP_PASS are required
+    // IMAP_PORT defaults to 993, IMAP_SECURE defaults to true
     this.isConfigured = !!(
       process.env.IMAP_HOST &&
       process.env.IMAP_USER &&
       process.env.IMAP_PASS
     );
+
+    // Validate optional settings
+    if (this.isConfigured) {
+      const port = parseInt(process.env.IMAP_PORT || '993', 10);
+      if (isNaN(port) || port <= 0 || port > 65535) {
+        console.warn('⚠ Invalid IMAP_PORT, using default 993');
+      }
+    }
 
     // Admin Supabase client for cross-user operations
     this.supabaseAdmin = null;
@@ -46,6 +62,9 @@ class IMAPService {
     
     // Socket.IO instance for real-time notifications
     this.io = null;
+    
+    // Cleanup interval for processed UIDs
+    this.cleanupInterval = null;
     
     // Statistics
     this.stats = {
@@ -174,7 +193,7 @@ class IMAPService {
     this.reconnectAttempts++;
     this.stats.reconnections++;
     
-    const delay = Math.min(this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1), 60000);
+    const delay = Math.min(this.reconnectDelay * Math.pow(BACKOFF_MULTIPLIER, this.reconnectAttempts - 1), MAX_BACKOFF_DELAY);
     console.log(`Reconnecting in ${delay / 1000}s (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
     
     await new Promise(resolve => setTimeout(resolve, delay));
@@ -241,6 +260,14 @@ class IMAPService {
       // Start IDLE loop for real-time notifications
       this.isListening = true;
       this.idleLoop();
+      
+      // Start periodic cleanup of processed UIDs (every 30 minutes)
+      if (this.cleanupInterval) {
+        clearInterval(this.cleanupInterval);
+      }
+      this.cleanupInterval = setInterval(() => {
+        this.cleanupProcessedUIDs();
+      }, 30 * 60 * 1000);
       
       console.log('✓ IMAP IDLE started - listening for new emails in real-time');
       return true;
@@ -633,6 +660,13 @@ class IMAPService {
    */
   async stopListening() {
     this.isListening = false;
+    
+    // Clear cleanup interval
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      this.cleanupInterval = null;
+    }
+    
     await this.disconnect();
     console.log('IMAP listening stopped');
   }
@@ -676,10 +710,10 @@ class IMAPService {
    * Clean up old processed UIDs to prevent memory growth
    */
   cleanupProcessedUIDs() {
-    if (this.processedUIDs.size > 10000) {
+    if (this.processedUIDs.size > UID_CACHE_MAX_SIZE) {
       const uidsArray = Array.from(this.processedUIDs);
-      this.processedUIDs = new Set(uidsArray.slice(-5000));
-      console.log('Cleaned up processed UIDs cache');
+      this.processedUIDs = new Set(uidsArray.slice(-UID_CACHE_CLEANUP_SIZE));
+      console.log(`Cleaned up processed UIDs cache (${UID_CACHE_MAX_SIZE} -> ${UID_CACHE_CLEANUP_SIZE})`);
     }
   }
 }

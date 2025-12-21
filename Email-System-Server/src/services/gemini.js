@@ -8,15 +8,15 @@
 class GeminiService {
   constructor() {
     this.apiKey = process.env.GEMINI_API_KEY;
-    // Use stable Gemini 1.5 Flash model (faster and more reliable)
-    this.baseUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
+    // Use Gemini 2.0 Flash model (latest and most capable)
+    this.baseUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
     this.maxRetries = 3;
     this.retryDelay = 1000;
     this.timeout = 30000; // 30 seconds timeout
     
     // Log configuration status
     if (this.apiKey) {
-      console.log('✓ Gemini AI configured');
+      console.log('✓ Gemini AI configured (model: gemini-2.0-flash)');
     } else {
       console.warn('⚠ Gemini API key not configured. AI features will return fallback responses.');
     }

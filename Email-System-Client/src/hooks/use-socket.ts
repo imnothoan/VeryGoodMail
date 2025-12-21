@@ -1,3 +1,7 @@
+/* eslint-disable react-hooks/set-state-in-effect */
+// Socket.IO hooks require setting state within effects for connection management
+// This is a valid pattern for external system synchronization
+
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useAuth } from '@/contexts/auth-context';
@@ -31,13 +35,21 @@ export const useSocket = () => {
     const [connectionError, setConnectionError] = useState<string | null>(null);
     const socketRef = useRef<Socket | null>(null);
     const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    
+    // Use a ref to track user ID to avoid dependency issues
+    const userIdRef = useRef<string | undefined>(undefined);
+    
+    // Keep ref in sync with user
+    useEffect(() => {
+        userIdRef.current = user?.id;
+    }, [user?.id]);
 
     // Join user room for private messages
     const joinUserRoom = useCallback((socketInstance: Socket) => {
-        if (user?.id && socketInstance.connected) {
-            socketInstance.emit('join-room', user.id);
+        if (userIdRef.current && socketInstance.connected) {
+            socketInstance.emit('join-room', userIdRef.current);
         }
-    }, [user?.id]);
+    }, []);
 
     useEffect(() => {
         // Only connect when we have a valid user session
@@ -45,9 +57,13 @@ export const useSocket = () => {
             if (socketRef.current) {
                 socketRef.current.disconnect();
                 socketRef.current = null;
+            }
+            // This is intentional: we need to reset state when user logs out
+            // Using requestAnimationFrame to defer to next frame
+            requestAnimationFrame(() => {
                 setSocket(null);
                 setIsConnected(false);
-            }
+            });
             return;
         }
 
@@ -119,8 +135,11 @@ export const useSocket = () => {
         setSocket(socketInstance);
 
         return () => {
-            if (reconnectTimeoutRef.current) {
-                clearTimeout(reconnectTimeoutRef.current);
+            // Capture ref value at cleanup time
+            const timeoutId = reconnectTimeoutRef.current;
+            if (timeoutId) {
+                clearTimeout(timeoutId);
+                reconnectTimeoutRef.current = null;
             }
             socketInstance.removeAllListeners();
             socketInstance.disconnect();

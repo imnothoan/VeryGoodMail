@@ -12,6 +12,8 @@ export type Email = {
     sender_name: string;
     sender_email: string;
     recipient_emails: string[];
+    cc_emails?: string[];
+    bcc_emails?: string[];
     subject: string;
     snippet: string;
     body_text: string;
@@ -20,7 +22,14 @@ export type Email = {
     is_read: boolean;
     is_starred: boolean;
     is_draft: boolean;
+    is_sent?: boolean;
+    is_spam?: boolean;
+    is_trashed?: boolean;
+    ai_category?: 'important' | 'social' | 'promotions' | 'updates' | 'primary' | 'spam';
+    ai_sentiment?: 'positive' | 'negative' | 'neutral';
+    ai_spam_score?: number;
     labels?: Label[];
+    attachments?: Attachment[];
     has_attachments?: boolean; // Derived
 };
 
@@ -38,4 +47,15 @@ export type Label = {
     name: string;
     type: 'system' | 'user';
     color: string;
+};
+
+export type Attachment = {
+    id: string;
+    email_id: string;
+    filename: string;
+    content_type: string;
+    size_bytes: number;
+    storage_path: string;
+    url?: string;
+    created_at?: string;
 };

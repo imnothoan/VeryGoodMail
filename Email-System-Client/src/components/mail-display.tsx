@@ -7,9 +7,12 @@ import {
     Archive,
     ArchiveX,
     Clock,
+    Download,
+    FileIcon,
     Forward,
     Loader2,
     MoreVertical,
+    Paperclip,
     Reply,
     ReplyAll,
     Sparkles,
@@ -388,6 +391,44 @@ export function MailDisplay({
                         )}
                     </div>
                     <Separator />
+                    
+                    {/* Attachments Section */}
+                    {mail.attachments && mail.attachments.length > 0 && (
+                        <>
+                            <div className="p-4 bg-muted/30">
+                                <div className="flex items-center gap-2 mb-2">
+                                    <Paperclip className="h-4 w-4" />
+                                    <span className="text-sm font-medium">
+                                        {t.mail.attachments} ({mail.attachments.length})
+                                    </span>
+                                </div>
+                                <div className="grid gap-2 sm:grid-cols-2">
+                                    {mail.attachments.map((attachment, index) => (
+                                        <a
+                                            key={index}
+                                            href={attachment.url || '#'}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="flex items-center gap-2 p-2 rounded-md bg-background hover:bg-accent transition-colors"
+                                        >
+                                            <FileIcon className="h-8 w-8 text-muted-foreground" />
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-sm font-medium truncate">
+                                                    {attachment.filename}
+                                                </p>
+                                                <p className="text-xs text-muted-foreground">
+                                                    {formatFileSize(attachment.size_bytes)}
+                                                </p>
+                                            </div>
+                                            <Download className="h-4 w-4 text-muted-foreground" />
+                                        </a>
+                                    ))}
+                                </div>
+                            </div>
+                            <Separator />
+                        </>
+                    )}
+                    
                     <div className="flex-1 whitespace-pre-wrap p-4 text-sm overflow-auto">
                         {mail.body_text}
                     </div>
@@ -438,4 +479,13 @@ export function MailDisplay({
             )}
         </div>
     )
+}
+
+// Helper function for file size formatting
+function formatFileSize(bytes: number): string {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }

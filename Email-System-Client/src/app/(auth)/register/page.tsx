@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { Loader2, Mail } from 'lucide-react';
+import { Loader2, Mail, Info } from 'lucide-react';
 
 import { useAuth } from '@/contexts/auth-context';
 import { useI18n } from '@/contexts/i18n-context';
@@ -27,14 +27,27 @@ import {
   FormItem,
   FormLabel,
   FormMessage,
+  FormDescription,
 } from '@/components/ui/form';
 import { Separator } from '@/components/ui/separator';
 import { LanguageSwitcher } from '@/components/language-switcher';
 import { Footer } from '@/components/footer';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+
+// Domain for the email system
+const EMAIL_DOMAIN = 'verygoodmail.tech';
 
 const formSchema = z.object({
   fullName: z.string().min(2),
-  email: z.string().email(),
+  username: z.string()
+    .min(3)
+    .max(30)
+    .regex(/^[a-zA-Z0-9._-]+$/, 'Username can only contain letters, numbers, dots, underscores and hyphens'),
   password: z.string().min(6),
   confirmPassword: z.string().min(6),
 }).refine((data) => data.password === data.confirmPassword, {
@@ -61,20 +74,33 @@ export default function RegisterPage() {
     resolver: zodResolver(formSchema),
     defaultValues: {
       fullName: '',
-      email: '',
+      username: '',
       password: '',
       confirmPassword: '',
     },
   });
 
+  const username = form.watch('username');
+  const fullEmailAddress = username ? `${username}@${EMAIL_DOMAIN}` : '';
+
   async function onSubmit(values: z.infer<typeof formSchema>) {
     setIsLoading(true);
     setError(null);
 
-    const { error } = await signUp(values.email, values.password, values.fullName);
+    // Create full email address
+    const email = `${values.username}@${EMAIL_DOMAIN}`;
+
+    const { error } = await signUp(email, values.password, values.fullName);
     
     if (error) {
-      setError(error.message);
+      // Handle specific error messages
+      let errorMessage = error.message;
+      if (error.message.includes('already registered')) {
+        errorMessage = language === 'vi' 
+          ? 'Tên đăng nhập này đã được sử dụng' 
+          : 'This username is already taken';
+      }
+      setError(errorMessage);
       setIsLoading(false);
       return;
     }
@@ -115,8 +141,8 @@ export default function RegisterPage() {
               <CardTitle>{t.common.success}</CardTitle>
               <CardDescription>
                 {language === 'vi' 
-                  ? 'Vui lòng kiểm tra email để xác thực tài khoản.'
-                  : 'Please check your email to verify your account.'}
+                  ? `Tài khoản ${fullEmailAddress} đã được tạo. Vui lòng kiểm tra email để xác thực.`
+                  : `Account ${fullEmailAddress} has been created. Please check your email to verify.`}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -146,7 +172,11 @@ export default function RegisterPage() {
               </div>
             </div>
             <CardTitle className="text-2xl font-bold">VeryGoodMail</CardTitle>
-            <CardDescription>{t.auth.createAccount}</CardDescription>
+            <CardDescription>
+              {language === 'vi' 
+                ? `Tạo tài khoản email @${EMAIL_DOMAIN}` 
+                : `Create your @${EMAIL_DOMAIN} email account`}
+            </CardDescription>
           </CardHeader>
           
           <CardContent className="space-y-4">
@@ -178,18 +208,42 @@ export default function RegisterPage() {
 
                 <FormField
                   control={form.control}
-                  name="email"
+                  name="username"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>{t.auth.email}</FormLabel>
+                      <FormLabel className="flex items-center gap-2">
+                        {language === 'vi' ? 'Tên đăng nhập' : 'Username'}
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Info className="h-4 w-4 text-muted-foreground cursor-help" />
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              {language === 'vi' 
+                                ? 'Đây sẽ là địa chỉ email của bạn' 
+                                : 'This will be your email address'}
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </FormLabel>
                       <FormControl>
-                        <Input
-                          type="email"
-                          placeholder="email@example.com"
-                          disabled={isLoading}
-                          {...field}
-                        />
+                        <div className="flex">
+                          <Input
+                            placeholder="username"
+                            className="rounded-r-none"
+                            disabled={isLoading}
+                            {...field}
+                          />
+                          <span className="inline-flex items-center px-3 rounded-r-md border border-l-0 border-input bg-muted text-muted-foreground text-sm">
+                            @{EMAIL_DOMAIN}
+                          </span>
+                        </div>
                       </FormControl>
+                      {username && (
+                        <FormDescription>
+                          {language === 'vi' ? 'Email của bạn:' : 'Your email:'} <strong>{fullEmailAddress}</strong>
+                        </FormDescription>
+                      )}
                       <FormMessage />
                     </FormItem>
                   )}

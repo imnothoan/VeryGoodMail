@@ -53,9 +53,9 @@ router.post('/classify', async (req, res) => {
  * Summarize email content using Gemini
  */
 router.post('/summarize', async (req, res) => {
+  const { subject, body, language = 'vi' } = req.body;
+  
   try {
-    const { subject, body, language = 'vi' } = req.body;
-
     if (!body) {
       return res.status(400).json({ error: 'Email body is required' });
     }

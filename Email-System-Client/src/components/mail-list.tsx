@@ -3,6 +3,7 @@
 import { ComponentProps } from "react"
 import { formatDistanceToNow } from "date-fns"
 import { vi, enUS } from "date-fns/locale"
+import { Paperclip } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
@@ -88,6 +89,9 @@ export function MailList({ items, selectedId, loading = false, onSelect }: MailL
                                     {item.is_starred && (
                                         <span className="text-yellow-500">★</span>
                                     )}
+                                    {(item.has_attachments || (item.attachments && item.attachments.length > 0)) && (
+                                        <Paperclip className="h-3 w-3 text-muted-foreground" />
+                                    )}
                                 </div>
                                 <div
                                     className={cn(
@@ -113,15 +117,18 @@ export function MailList({ items, selectedId, loading = false, onSelect }: MailL
                         <div className="line-clamp-2 text-xs text-muted-foreground">
                             {item.snippet?.substring(0, 300) || ''}
                         </div>
-                        {item.labels && item.labels.length > 0 ? (
-                            <div className="flex items-center gap-2">
-                                {item.labels.map((label) => (
-                                    <Badge key={label.id} variant={getBadgeVariantFromLabel(label.name)}>
-                                        {label.name}
-                                    </Badge>
-                                ))}
-                            </div>
-                        ) : null}
+                        <div className="flex items-center gap-2">
+                            {item.ai_category && item.ai_category !== 'primary' && (
+                                <Badge variant="secondary" className="text-xs">
+                                    {item.ai_category}
+                                </Badge>
+                            )}
+                            {item.labels && item.labels.length > 0 && item.labels.map((label) => (
+                                <Badge key={label.id} variant={getBadgeVariantFromLabel(label.name)}>
+                                    {label.name}
+                                </Badge>
+                            ))}
+                        </div>
                     </button>
                 ))}
             </div>

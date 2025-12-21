@@ -2,6 +2,8 @@ const express = require('express');
 const router = express.Router();
 const { v4: uuidv4 } = require('uuid');
 const encryption = require('../utils/encryption');
+const smtpService = require('../services/smtp');
+const naiveBayes = require('../services/naiveBayes');
 
 /**
  * GET /api/emails
@@ -21,7 +23,7 @@ router.get('/', async (req, res) => {
 
     let query = supabase
       .from('emails')
-      .select('*, labels:email_labels(label:labels(*))')
+      .select('*, labels:email_labels(label:labels(*)), attachments(*)')
       .eq('user_id', user.id)
       .order('date', { ascending: false });
 
@@ -82,7 +84,8 @@ router.get('/', async (req, res) => {
           ...email,
           body_text: email.body_text ? encryption.decrypt(email.body_text) : null,
           body_html: email.body_html ? encryption.decrypt(email.body_html) : null,
-          snippet: email.snippet ? encryption.decrypt(email.snippet) : null
+          snippet: email.snippet ? encryption.decrypt(email.snippet) : null,
+          has_attachments: email.attachments && email.attachments.length > 0
         };
       } catch (decryptError) {
         // If decryption fails, return original (might be unencrypted legacy data)
@@ -157,7 +160,8 @@ router.post('/', async (req, res) => {
       subject,
       body_text,
       body_html,
-      is_draft = false
+      is_draft = false,
+      attachments = []
     } = req.body;
 
     // Validate required fields for sending
@@ -178,8 +182,32 @@ router.post('/', async (req, res) => {
     const encryptedHtml = body_html ? encryption.encrypt(body_html) : null;
     const encryptedSnippet = snippet ? encryption.encrypt(snippet) : null;
 
+    // AI Classification using Naive Bayes
+    let aiCategory = 'primary';
+    let aiSpamScore = 0;
+    let isSpam = false;
+    
+    if (body_text || subject) {
+      try {
+        const classification = naiveBayes.classify(`${subject || ''} ${body_text || ''}`);
+        aiCategory = classification.category;
+        isSpam = classification.isSpam;
+        aiSpamScore = isSpam ? classification.confidence / 100 : 0;
+        
+        // Map category names
+        if (aiCategory === 'ham') aiCategory = 'primary';
+        if (aiCategory === 'spam') {
+          aiCategory = 'spam';
+          isSpam = true;
+        }
+      } catch (classifyError) {
+        console.log('Classification skipped:', classifyError.message);
+      }
+    }
+
     // Create or find thread
     const threadId = uuidv4();
+    const emailId = uuidv4();
     
     await supabase
       .from('threads')
@@ -193,7 +221,7 @@ router.post('/', async (req, res) => {
 
     // Create email
     const emailData = {
-      id: uuidv4(),
+      id: emailId,
       thread_id: threadId,
       user_id: user.id,
       sender_name: user.user_metadata?.full_name || user.email,
@@ -207,6 +235,9 @@ router.post('/', async (req, res) => {
       body_html: encryptedHtml,
       is_draft,
       is_sent: !is_draft,
+      is_spam: isSpam,
+      ai_category: aiCategory,
+      ai_spam_score: aiSpamScore,
       date: new Date().toISOString()
     };
 
@@ -220,8 +251,55 @@ router.post('/', async (req, res) => {
       throw error;
     }
 
-    // TODO: Integrate with PhoBERT for spam/sentiment analysis
-    // TODO: Send actual email via SMTP
+    // Save attachments to database
+    if (attachments.length > 0) {
+      const attachmentRecords = attachments.map(att => ({
+        id: uuidv4(),
+        email_id: emailId,
+        user_id: user.id,
+        filename: att.filename,
+        content_type: att.content_type,
+        size_bytes: att.size_bytes,
+        storage_path: att.storage_path,
+      }));
+
+      await supabase
+        .from('attachments')
+        .insert(attachmentRecords);
+    }
+
+    // Send email via SMTP if not a draft
+    let smtpResult = null;
+    if (!is_draft && to && to.length > 0) {
+      // Get public URLs for attachments
+      const attachmentUrls = [];
+      for (const att of attachments) {
+        if (att.storage_path) {
+          const { data: urlData } = supabase.storage
+            .from('media')
+            .getPublicUrl(att.storage_path);
+          attachmentUrls.push({
+            ...att,
+            url: urlData?.publicUrl
+          });
+        }
+      }
+
+      smtpResult = await smtpService.sendEmail({
+        from: user.email,
+        to,
+        cc,
+        bcc,
+        subject: subject || '(No subject)',
+        text: body_text,
+        html: body_html,
+        attachments: attachmentUrls
+      });
+
+      if (!smtpResult.success && !smtpResult.local) {
+        console.warn('SMTP send failed, email stored locally:', smtpResult.error);
+      }
+    }
 
     // Notify recipients via Socket.IO (if they're connected)
     if (!is_draft && to) {
@@ -230,7 +308,8 @@ router.post('/', async (req, res) => {
           ...email,
           body_text,
           body_html,
-          snippet
+          snippet,
+          attachments
         });
       });
     }
@@ -241,8 +320,10 @@ router.post('/', async (req, res) => {
         ...email,
         body_text,
         body_html,
-        snippet
-      }
+        snippet,
+        attachments
+      },
+      smtp: smtpResult
     });
   } catch (error) {
     console.error('Error creating email:', error);
@@ -379,6 +460,75 @@ router.post('/bulk', async (req, res) => {
   } catch (error) {
     console.error('Error in bulk operation:', error);
     res.status(500).json({ error: 'Failed to perform bulk operation' });
+  }
+});
+
+/**
+ * GET /api/emails/counts/unread
+ * Get unread email counts per folder/category
+ */
+router.get('/counts/unread', async (req, res) => {
+  try {
+    const { supabase, user } = req;
+
+    // Get counts for each folder
+    const { data: emails, error } = await supabase
+      .from('emails')
+      .select('is_read, is_draft, is_sent, is_spam, is_trashed, is_starred, ai_category')
+      .eq('user_id', user.id);
+
+    if (error) throw error;
+
+    const counts = {
+      inbox: 0,
+      sent: 0,
+      drafts: 0,
+      spam: 0,
+      trash: 0,
+      starred: 0,
+      important: 0,
+      social: 0,
+      updates: 0,
+      promotions: 0,
+      archive: 0
+    };
+
+    emails.forEach(email => {
+      const isUnread = !email.is_read;
+      
+      // Count inbox (not sent, draft, spam, or trashed)
+      if (!email.is_sent && !email.is_draft && !email.is_spam && !email.is_trashed && isUnread) {
+        counts.inbox++;
+      }
+      
+      // Count drafts
+      if (email.is_draft && !email.is_trashed) {
+        counts.drafts++;
+      }
+      
+      // Count spam
+      if (email.is_spam && !email.is_trashed && isUnread) {
+        counts.spam++;
+      }
+      
+      // Count starred
+      if (email.is_starred && !email.is_trashed && isUnread) {
+        counts.starred++;
+      }
+      
+      // Count by AI category
+      if (!email.is_trashed && !email.is_spam && !email.is_draft && isUnread) {
+        const category = email.ai_category;
+        if (category && counts.hasOwnProperty(category)) {
+          counts[category]++;
+        }
+      }
+    });
+
+    res.json(counts);
+  } catch (error) {
+    console.error('Error getting unread counts:', error);
+    res.status(500).json({ error: 'Failed to get unread counts' });
   }
 });
 

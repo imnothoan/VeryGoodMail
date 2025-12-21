@@ -458,13 +458,54 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.emails;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.threads;
 
 -- ============================================================
--- STORAGE BUCKET SETUP (Run separately in Storage section)
+-- STORAGE BUCKET SETUP
 -- ============================================================
--- 1. Create bucket 'attachments' in Supabase Storage
--- 2. Set policies:
---    - INSERT: auth.uid() = owner
---    - SELECT: auth.uid() = owner
---    - DELETE: auth.uid() = owner
+-- Note: The bucket must be created via Supabase Dashboard or API first
+-- Run this SQL after creating the 'media' bucket
+
+-- Storage policies for 'media' bucket
+-- Allow authenticated users to upload files to their own folder
+CREATE POLICY "Users can upload files to own folder" ON storage.objects
+    FOR INSERT
+    TO authenticated
+    WITH CHECK (
+        bucket_id = 'media' AND
+        (storage.foldername(name))[1] = auth.uid()::text
+    );
+
+-- Allow authenticated users to view their own files
+CREATE POLICY "Users can view own files" ON storage.objects
+    FOR SELECT
+    TO authenticated
+    USING (
+        bucket_id = 'media' AND
+        (storage.foldername(name))[1] = auth.uid()::text
+    );
+
+-- Allow authenticated users to update their own files
+CREATE POLICY "Users can update own files" ON storage.objects
+    FOR UPDATE
+    TO authenticated
+    USING (
+        bucket_id = 'media' AND
+        (storage.foldername(name))[1] = auth.uid()::text
+    );
+
+-- Allow authenticated users to delete their own files
+CREATE POLICY "Users can delete own files" ON storage.objects
+    FOR DELETE
+    TO authenticated
+    USING (
+        bucket_id = 'media' AND
+        (storage.foldername(name))[1] = auth.uid()::text
+    );
+
+-- Alternative: If you want public access to attachments (for email viewing)
+-- Uncomment the following policy and comment out the SELECT policy above:
+-- CREATE POLICY "Public read access for media" ON storage.objects
+--     FOR SELECT
+--     TO public
+--     USING (bucket_id = 'media');
 
 -- ============================================================
 -- © 2025 VeryGoodMail by Hoàn

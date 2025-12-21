@@ -18,20 +18,23 @@ const DISCONNECT_REASONS = {
 
 // Socket configuration for stable connection
 const SOCKET_CONFIG = {
-    // Start with websocket, fallback to polling only if needed
+    // Prefer websocket first for lower latency, but allow fallback to polling
+    // This ensures connection even in restrictive network environments
     transports: ['websocket', 'polling'],
     upgrade: true,
     autoConnect: false, // Manual connect after auth
     // Reconnection settings (exponential backoff)
     reconnection: true,
-    reconnectionAttempts: 50, // High but finite to prevent resource exhaustion
+    reconnectionAttempts: 30, // Reduced from 50 to fail faster and show error to user
     reconnectionDelay: 1000,
     reconnectionDelayMax: 30000,
     randomizationFactor: 0.5,
-    // Timeouts
+    // Timeouts - must be reasonable for real-world networks
     timeout: 20000,
-    // Heartbeat settings - must match server
-    // Note: These are client-side only hints
+    // Force new connection on reconnect to avoid stale state
+    forceNew: false,
+    // Multiplexing - single connection per host
+    multiplex: true,
 };
 
 export const useSocket = () => {
@@ -122,13 +125,22 @@ export const useSocket = () => {
             return;
         }
 
-        // If socket already exists and connected, just join room
-        if (socketRef.current?.connected) {
-            joinUserRoom(socketRef.current);
-            return;
+        // If socket already exists, handle differently
+        if (socketRef.current) {
+            if (socketRef.current.connected) {
+                // Already connected, just ensure we're in the right room
+                joinUserRoom(socketRef.current);
+                return;
+            } else {
+                // Socket exists but disconnected - try to reconnect instead of creating new
+                if (isOnlineRef.current) {
+                    socketRef.current.connect();
+                }
+                return;
+            }
         }
 
-        // Create new socket instance
+        // Create new socket instance only if one doesn't exist
         const socketInstance = io(SOCKET_URL, {
             ...SOCKET_CONFIG,
             auth: {

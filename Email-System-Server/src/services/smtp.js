@@ -65,7 +65,8 @@ class SMTPService {
   /**
    * Send an email via SMTP
    * @param {object} options - Email options
-   * @param {string} options.from - Sender address
+   * @param {string} options.from - Sender email address
+   * @param {string} options.fromName - Sender display name
    * @param {string|string[]} options.to - Recipient(s)
    * @param {string|string[]} options.cc - CC recipient(s)
    * @param {string|string[]} options.bcc - BCC recipient(s)
@@ -87,6 +88,7 @@ class SMTPService {
 
     const {
       from,
+      fromName,
       to,
       cc,
       bcc,
@@ -104,12 +106,22 @@ class SMTPService {
     // Build mail options
     // SMTP servers typically require 'from' to match the authenticated user
     // Use SMTP_FROM or SMTP_USER as the actual sender
-    // If the user's email is different, use Reply-To header
+    // Include the user's display name in the "from" field for better UX
     const smtpFrom = process.env.SMTP_FROM || process.env.SMTP_USER;
     const userRequestedFrom = from || smtpFrom;
     
+    // Format the from address with display name
+    // If user has a display name, format as "Display Name <email@domain.com>"
+    // Otherwise just use the SMTP email address
+    let fromAddress = smtpFrom;
+    if (fromName) {
+      // Escape any special characters in the name
+      const safeName = fromName.replace(/[<>"]/g, '');
+      fromAddress = `${safeName} <${smtpFrom}>`;
+    }
+    
     const mailOptions = {
-      from: smtpFrom, // Always use authenticated SMTP user for 'from'
+      from: fromAddress,
       to: Array.isArray(to) ? to.join(', ') : to,
       subject: subject || '(No subject)',
       text: text || '',
@@ -117,8 +129,14 @@ class SMTPService {
     
     // If original sender is different from SMTP user, add Reply-To header
     // This allows recipients to reply directly to the actual sender
+    // Also include the display name in Reply-To for consistency
     if (userRequestedFrom && userRequestedFrom !== smtpFrom) {
-      mailOptions.replyTo = userRequestedFrom;
+      if (fromName) {
+        const safeName = fromName.replace(/[<>"]/g, '');
+        mailOptions.replyTo = `${safeName} <${userRequestedFrom}>`;
+      } else {
+        mailOptions.replyTo = userRequestedFrom;
+      }
     }
 
     // Add CC if provided

@@ -73,8 +73,8 @@ router.get('/counts/unread', async (req, res) => {
         counts.starred++;
       }
       
-      // Count by AI category
-      if (!email.is_trashed && !email.is_spam && !email.is_draft && isUnread) {
+      // Count by AI category (only for received emails, not sent)
+      if (!email.is_trashed && !email.is_spam && !email.is_draft && !email.is_sent && isUnread) {
         const category = email.ai_category;
         if (category && counts.hasOwnProperty(category)) {
           counts[category]++;
@@ -131,12 +131,22 @@ router.get('/', async (req, res) => {
       case 'starred':
         query = query.eq('is_starred', true).eq('is_trashed', false);
         break;
-      // AI categories
+      case 'archive':
+        query = query.eq('is_trashed', false).eq('is_spam', false).eq('is_draft', false);
+        // Note: Archive functionality would need additional flag in database
+        break;
+      // AI categories - filter by ai_category and exclude sent/draft/spam/trash
       case 'important':
       case 'social':
       case 'promotions':
       case 'updates':
-        query = query.eq('ai_category', folder).eq('is_trashed', false).eq('is_spam', false);
+      case 'primary':
+        query = query
+          .eq('ai_category', folder)
+          .eq('is_trashed', false)
+          .eq('is_spam', false)
+          .eq('is_draft', false)
+          .eq('is_sent', false);
         break;
     }
 

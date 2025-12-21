@@ -14,13 +14,24 @@ const authMiddleware = require('./middleware/auth');
 const app = express();
 const httpServer = createServer(app);
 
-// Socket.IO setup
+// Socket.IO setup with improved stability configuration
 const io = new Server(httpServer, {
   cors: {
     origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000', 'http://localhost:5173'],
     methods: ['GET', 'POST'],
     credentials: true
-  }
+  },
+  // Connection stability settings
+  pingTimeout: 60000,        // How long to wait for pong before considering connection dead
+  pingInterval: 25000,       // How often to ping clients
+  connectTimeout: 45000,     // Connection timeout
+  transports: ['websocket', 'polling'], // Allow fallback to polling
+  allowUpgrades: true,       // Allow transport upgrade
+  // Performance settings
+  maxHttpBufferSize: 1e6,    // 1MB max message size
+  perMessageDeflate: {
+    threshold: 1024,         // Only compress messages larger than 1KB
+  },
 });
 
 // Store io instance for use in routes
@@ -52,7 +63,8 @@ app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
-    version: '1.0.0'
+    version: '1.0.0',
+    socketConnections: io.engine.clientsCount || 0
   });
 });
 
@@ -60,20 +72,89 @@ app.get('/health', (req, res) => {
 app.use('/api/emails', authMiddleware, emailRoutes);
 app.use('/api/ai', authMiddleware, aiRoutes);
 
-// Socket.IO connection handling
+// Track connected users
+const connectedUsers = new Map();
+
+// Socket.IO connection handling with improved error handling
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
 
+  // Track connection time
+  socket.connectionTime = Date.now();
+
+  // Handle authentication
+  const token = socket.handshake.auth?.token;
+  if (token) {
+    socket.authenticated = true;
+  }
+
   // Join user's room for private messages
   socket.on('join-room', (userId) => {
+    if (!userId) {
+      console.log('Invalid userId for join-room');
+      return;
+    }
+
+    // Leave previous room if any
+    const previousRoom = connectedUsers.get(socket.id);
+    if (previousRoom) {
+      socket.leave(`user:${previousRoom}`);
+    }
+
+    // Join new room
     socket.join(`user:${userId}`);
+    connectedUsers.set(socket.id, userId);
     console.log(`User ${userId} joined their room`);
+
+    // Send acknowledgment
+    socket.emit('room-joined', { userId, success: true });
   });
 
-  socket.on('disconnect', () => {
-    console.log('Client disconnected:', socket.id);
+  // Handle client ping (manual keep-alive)
+  socket.on('ping', () => {
+    socket.emit('pong', { timestamp: Date.now() });
+  });
+
+  // Handle errors
+  socket.on('error', (error) => {
+    console.error('Socket error:', socket.id, error.message);
+  });
+
+  socket.on('disconnect', (reason) => {
+    console.log('Client disconnected:', socket.id, 'Reason:', reason);
+    
+    // Cleanup user tracking
+    const userId = connectedUsers.get(socket.id);
+    if (userId) {
+      connectedUsers.delete(socket.id);
+    }
+
+    // Log connection duration
+    const duration = Date.now() - socket.connectionTime;
+    console.log(`Connection duration: ${Math.round(duration / 1000)}s`);
+  });
+
+  // Handle reconnection
+  socket.on('reconnect', () => {
+    console.log('Client reconnected:', socket.id);
   });
 });
+
+// Periodic cleanup of stale connections (every 5 minutes)
+setInterval(() => {
+  const now = Date.now();
+  const timeout = 5 * 60 * 1000; // 5 minutes
+  
+  io.sockets.sockets.forEach((socket) => {
+    if (socket.connectionTime && (now - socket.connectionTime) > timeout) {
+      // Check if socket is still active
+      if (!socket.connected) {
+        console.log('Cleaning up stale socket:', socket.id);
+        socket.disconnect(true);
+      }
+    }
+  });
+}, 5 * 60 * 1000);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

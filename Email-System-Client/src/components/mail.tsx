@@ -12,9 +12,21 @@ import { AppSidebar } from "@/components/app-sidebar"
 import { MailList } from "@/components/mail-list"
 import { MailDisplay } from "@/components/mail-display"
 import { Email } from "@/types"
+import { Folder } from "@/services/email-service"
 
 interface MailProps {
     mails: Email[]
+    selectedMail?: Email | null
+    folder: Folder
+    unreadCounts: Record<Folder, number>
+    loading?: boolean
+    onFolderChange: (folder: Folder) => void
+    onSelectMail: (mail: Email | null) => void
+    onMarkAsRead?: (id: string) => Promise<void>
+    onMarkAsUnread?: (id: string) => Promise<void>
+    onToggleStar?: (id: string) => Promise<void>
+    onMoveToTrash?: (id: string) => Promise<void>
+    onMoveToSpam?: (id: string) => Promise<void>
     defaultLayout?: number[] | undefined
     defaultCollapsed?: boolean
     navCollapsedSize?: number
@@ -22,20 +34,36 @@ interface MailProps {
 
 export function Mail({
     mails,
+    selectedMail = null,
+    folder,
+    unreadCounts,
+    loading = false,
+    onFolderChange,
+    onSelectMail,
+    onMarkAsRead,
+    onMarkAsUnread,
+    onToggleStar,
+    onMoveToTrash,
+    onMoveToSpam,
     defaultLayout = [20, 32, 48],
     defaultCollapsed = false,
     navCollapsedSize = 4,
 }: MailProps) {
     const [isCollapsed, setIsCollapsed] = React.useState(defaultCollapsed)
-    const [selectedMailId, setSelectedMailId] = React.useState<string | null>(null)
-
-    const selectedMail = mails.find((mail) => mail.id === selectedMailId) || null
 
     React.useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
+            // Don't handle if in input/textarea
+            if (
+                document.activeElement?.tagName === 'INPUT' ||
+                document.activeElement?.tagName === 'TEXTAREA'
+            ) {
+                return
+            }
+
             if (e.key === "j" || e.key === "k") {
                 e.preventDefault()
-                const currentIndex = mails.findIndex((mail) => mail.id === selectedMailId)
+                const currentIndex = mails.findIndex((mail) => mail.id === selectedMail?.id)
                 let newIndex = currentIndex
 
                 if (e.key === "j") {
@@ -44,15 +72,15 @@ export function Mail({
                     newIndex = Math.max(currentIndex - 1, 0)
                 }
 
-                if (newIndex !== currentIndex && newIndex >= 0) {
-                    setSelectedMailId(mails[newIndex].id)
+                if (newIndex !== currentIndex && newIndex >= 0 && mails[newIndex]) {
+                    onSelectMail(mails[newIndex])
                 }
             }
         }
 
         window.addEventListener("keydown", handleKeyDown)
         return () => window.removeEventListener("keydown", handleKeyDown)
-    }, [mails, selectedMailId])
+    }, [mails, selectedMail, onSelectMail])
 
     return (
         <TooltipProvider delayDuration={0}>
@@ -85,15 +113,37 @@ export function Mail({
                     }}
                     className={isCollapsed ? "min-w-[50px] transition-all duration-300 ease-in-out" : "transition-all duration-300 ease-in-out"}
                 >
-                    <AppSidebar isCollapsed={isCollapsed} />
+                    <AppSidebar 
+                        isCollapsed={isCollapsed} 
+                        currentFolder={folder}
+                        unreadCounts={unreadCounts}
+                        onFolderChange={onFolderChange}
+                    />
                 </ResizablePanel>
                 <ResizableHandle withHandle />
                 <ResizablePanel defaultSize={defaultLayout[1]} minSize={30}>
-                    <MailList items={mails} selectedId={selectedMailId} onSelect={setSelectedMailId} />
+                    <MailList 
+                        items={mails} 
+                        selectedId={selectedMail?.id || null} 
+                        loading={loading}
+                        onSelect={(id) => {
+                            const mail = mails.find(m => m.id === id)
+                            if (mail) {
+                                onSelectMail(mail)
+                            }
+                        }} 
+                    />
                 </ResizablePanel>
                 <ResizableHandle withHandle />
                 <ResizablePanel defaultSize={defaultLayout[2]}>
-                    <MailDisplay mail={selectedMail} />
+                    <MailDisplay 
+                        mail={selectedMail} 
+                        onMarkAsRead={onMarkAsRead}
+                        onMarkAsUnread={onMarkAsUnread}
+                        onToggleStar={onToggleStar}
+                        onMoveToTrash={onMoveToTrash}
+                        onMoveToSpam={onMoveToSpam}
+                    />
                 </ResizablePanel>
             </ResizablePanelGroup>
         </TooltipProvider>

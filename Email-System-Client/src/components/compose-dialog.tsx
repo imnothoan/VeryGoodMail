@@ -26,20 +26,28 @@ import {
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Separator } from "@/components/ui/separator"
-
-const formSchema = z.object({
-    to: z.string().email({ message: "Invalid email address" }),
-    subject: z.string().min(1, { message: "Subject is required" }),
-    body: z.string().min(1, { message: "Body is required" }),
-})
+import { useI18n } from "@/contexts/i18n-context"
+import { emailService } from "@/services/email-service"
+import { useToast } from "@/hooks/use-toast"
 
 interface ComposeDialogProps {
     children: React.ReactNode
 }
 
 export function ComposeDialog({ children }: ComposeDialogProps) {
+    const { t, language } = useI18n()
     const [open, setOpen] = React.useState(false)
     const [isLoading, setIsLoading] = React.useState(false)
+
+    const formSchema = React.useMemo(() => z.object({
+        to: z.string().email({ message: t.auth.invalidEmail }),
+        subject: z.string().min(1, { 
+            message: language === 'vi' ? 'Tiêu đề là bắt buộc' : 'Subject is required' 
+        }),
+        body: z.string().min(1, { 
+            message: language === 'vi' ? 'Nội dung là bắt buộc' : 'Body is required' 
+        }),
+    }), [t, language])
 
     const form = useForm<z.infer<typeof formSchema>>({
         resolver: zodResolver(formSchema),
@@ -52,12 +60,46 @@ export function ComposeDialog({ children }: ComposeDialogProps) {
 
     async function onSubmit(values: z.infer<typeof formSchema>) {
         setIsLoading(true)
-        // Mock API call
-        await new Promise((resolve) => setTimeout(resolve, 1000))
-        console.log(values)
-        setIsLoading(false)
-        setOpen(false)
-        form.reset()
+        
+        try {
+            const result = await emailService.sendEmail({
+                to: [values.to],
+                subject: values.subject,
+                body_text: values.body,
+            })
+
+            if (result.success) {
+                setOpen(false)
+                form.reset()
+            } else {
+                // Show error
+                console.error('Failed to send email:', result.error)
+            }
+        } catch (error) {
+            console.error('Error sending email:', error)
+        } finally {
+            setIsLoading(false)
+        }
+    }
+
+    const handleSaveDraft = async () => {
+        const values = form.getValues()
+        setIsLoading(true)
+        
+        try {
+            await emailService.sendEmail({
+                to: values.to ? [values.to] : [],
+                subject: values.subject || '',
+                body_text: values.body || '',
+                is_draft: true,
+            })
+            setOpen(false)
+            form.reset()
+        } catch (error) {
+            console.error('Error saving draft:', error)
+        } finally {
+            setIsLoading(false)
+        }
     }
 
     return (
@@ -65,7 +107,7 @@ export function ComposeDialog({ children }: ComposeDialogProps) {
             <DialogTrigger asChild>{children}</DialogTrigger>
             <DialogContent className="sm:max-w-[600px]">
                 <DialogHeader>
-                    <DialogTitle>New Message</DialogTitle>
+                    <DialogTitle>{t.mail.newMessage}</DialogTitle>
                 </DialogHeader>
                 <Form {...form}>
                     <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
@@ -76,12 +118,13 @@ export function ComposeDialog({ children }: ComposeDialogProps) {
                                 <FormItem>
                                     <div className="grid grid-cols-[60px_1fr] items-center gap-4">
                                         <FormLabel className="text-right text-muted-foreground">
-                                            To
+                                            {t.mail.to}
                                         </FormLabel>
                                         <FormControl>
                                             <Input
                                                 placeholder="recipient@example.com"
                                                 className="border-0 shadow-none focus-visible:ring-0"
+                                                disabled={isLoading}
                                                 {...field}
                                             />
                                         </FormControl>
@@ -98,12 +141,13 @@ export function ComposeDialog({ children }: ComposeDialogProps) {
                                 <FormItem>
                                     <div className="grid grid-cols-[60px_1fr] items-center gap-4">
                                         <FormLabel className="text-right text-muted-foreground">
-                                            Subject
+                                            {t.mail.subject}
                                         </FormLabel>
                                         <FormControl>
                                             <Input
-                                                placeholder="Subject"
+                                                placeholder={t.mail.subject}
                                                 className="border-0 shadow-none focus-visible:ring-0"
+                                                disabled={isLoading}
                                                 {...field}
                                             />
                                         </FormControl>
@@ -120,8 +164,9 @@ export function ComposeDialog({ children }: ComposeDialogProps) {
                                 <FormItem>
                                     <FormControl>
                                         <Textarea
-                                            placeholder="Type your message here..."
+                                            placeholder={t.mail.typeMessage}
                                             className="min-h-[300px] resize-none border-0 shadow-none focus-visible:ring-0"
+                                            disabled={isLoading}
                                             {...field}
                                         />
                                     </FormControl>
@@ -130,12 +175,23 @@ export function ComposeDialog({ children }: ComposeDialogProps) {
                             )}
                         />
                         <DialogFooter className="flex items-center justify-between sm:justify-between">
-                            <Button type="button" variant="ghost" size="icon">
-                                <Paperclip className="h-4 w-4" />
-                            </Button>
+                            <div className="flex items-center gap-2">
+                                <Button type="button" variant="ghost" size="icon" disabled={isLoading}>
+                                    <Paperclip className="h-4 w-4" />
+                                </Button>
+                                <Button 
+                                    type="button" 
+                                    variant="outline" 
+                                    onClick={handleSaveDraft}
+                                    disabled={isLoading}
+                                >
+                                    {language === 'vi' ? 'Lưu nháp' : 'Save Draft'}
+                                </Button>
+                            </div>
                             <Button type="submit" disabled={isLoading}>
                                 {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                Send
+                                <Send className="mr-2 h-4 w-4" />
+                                {t.mail.send}
                             </Button>
                         </DialogFooter>
                     </form>

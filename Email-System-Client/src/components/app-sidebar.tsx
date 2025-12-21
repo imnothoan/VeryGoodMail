@@ -13,7 +13,6 @@ import {
     ShoppingCart,
     Star,
     Trash2,
-    Users2,
 } from "lucide-react"
 
 import { Separator } from "@/components/ui/separator"
@@ -95,7 +94,7 @@ export function AppSidebar({
         },
     ]
 
-    // AI Categories with descriptions
+    // AI Categories with descriptions (Social removed as requested)
     const categoryLinks: (NavLink & { description?: string })[] = [
         {
             title: t.mail.important,
@@ -103,13 +102,6 @@ export function AppSidebar({
             icon: AlertCircle,
             folder: 'important',
             description: t.aiCategories.importantDesc,
-        },
-        {
-            title: t.mail.social,
-            label: unreadCounts.social > 0 ? unreadCounts.social.toString() : undefined,
-            icon: Users2,
-            folder: 'social',
-            description: t.aiCategories.socialDesc,
         },
         {
             title: t.mail.updates,

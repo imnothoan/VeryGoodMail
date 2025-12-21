@@ -33,6 +33,7 @@ import {
 } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import {
     Tooltip,
     TooltipContent,
@@ -303,11 +304,11 @@ export function MailDisplay({
             </div>
             <Separator />
             {mail ? (
-                <div className="flex flex-1 flex-col">
+                <div className="flex flex-1 flex-col overflow-hidden">
                     {/* AI Panel */}
                     {showAIPanel && (
                         <>
-                            <div className="bg-gradient-to-r from-purple-50 to-blue-50 dark:from-purple-900/20 dark:to-blue-900/20 p-4 border-b">
+                            <div className="bg-gradient-to-r from-purple-50 to-blue-50 dark:from-purple-900/20 dark:to-blue-900/20 p-4 border-b flex-shrink-0">
                                 <div className="flex items-center gap-2 mb-2">
                                     <Sparkles className="h-4 w-4 text-purple-500" />
                                     <span className="font-medium text-sm">
@@ -372,41 +373,44 @@ export function MailDisplay({
                         </>
                     )}
                     
-                    <div className="flex items-start p-4">
-                        <div className="flex items-start gap-4 text-sm">
-                            <Avatar>
-                                <AvatarImage src={mail.sender_avatar_url} alt={mail.sender_name} />
-                                <AvatarFallback>
-                                    {mail.sender_name
-                                        .split(" ")
-                                        .map((chunk) => chunk[0])
-                                        .join("")
-                                        .toUpperCase()
-                                        .slice(0, 2)}
-                                </AvatarFallback>
-                            </Avatar>
-                            <div className="grid gap-1">
-                                <div className="font-semibold">{mail.sender_name}</div>
-                                <div className="line-clamp-1 text-xs">{mail.subject}</div>
-                                <div className="line-clamp-1 text-xs">
-                                    <span className="font-medium">{t.mail.replyTo}:</span> {mail.sender_email}
+                    {/* Scrollable content area */}
+                    <ScrollArea className="flex-1">
+                        {/* Email header */}
+                        <div className="flex items-start p-4 flex-shrink-0">
+                            <div className="flex items-start gap-4 text-sm">
+                                <Avatar>
+                                    <AvatarImage src={mail.sender_avatar_url} alt={mail.sender_name} />
+                                    <AvatarFallback>
+                                        {mail.sender_name
+                                            .split(" ")
+                                            .map((chunk) => chunk[0])
+                                            .join("")
+                                            .toUpperCase()
+                                            .slice(0, 2)}
+                                    </AvatarFallback>
+                                </Avatar>
+                                <div className="grid gap-1">
+                                    <div className="font-semibold">{mail.sender_name}</div>
+                                    <div className="line-clamp-1 text-xs">{mail.subject}</div>
+                                    <div className="line-clamp-1 text-xs">
+                                        <span className="font-medium">{t.mail.replyTo}:</span> {mail.sender_email}
+                                    </div>
                                 </div>
                             </div>
+                            {mail.date && (
+                                <div className="ml-auto text-xs text-muted-foreground">
+                                    {format(new Date(mail.date), "PPpp", {
+                                        locale: language === 'vi' ? vi : enUS
+                                    })}
+                                </div>
+                            )}
                         </div>
-                        {mail.date && (
-                            <div className="ml-auto text-xs text-muted-foreground">
-                                {format(new Date(mail.date), "PPpp", {
-                                    locale: language === 'vi' ? vi : enUS
-                                })}
-                            </div>
-                        )}
-                    </div>
-                    <Separator />
-                    
-                    {/* Attachments Section */}
-                    {mail.attachments && mail.attachments.length > 0 && (
-                        <>
-                            <div className="p-4 bg-muted/30">
+                        <Separator />
+                        
+                        {/* Attachments Section */}
+                        {mail.attachments && mail.attachments.length > 0 && (
+                            <>
+                                <div className="p-4 bg-muted/30 flex-shrink-0">
                                 <div className="flex items-center gap-2 mb-2">
                                     <Paperclip className="h-4 w-4" />
                                     <span className="text-sm font-medium">
@@ -440,15 +444,19 @@ export function MailDisplay({
                         </>
                     )}
                     
-                    <div className="flex-1 whitespace-pre-wrap p-4 text-sm overflow-auto">
-                        {mail.body_text}
-                    </div>
-                    <Separator className="mt-auto" />
-                    <div className="p-4">
+                        {/* Email body content - scrollable */}
+                        <div className="whitespace-pre-wrap p-4 text-sm">
+                            {mail.body_text}
+                        </div>
+                    </ScrollArea>
+                    
+                    {/* Reply section - fixed at bottom */}
+                    <Separator />
+                    <div className="p-4 flex-shrink-0 bg-background">
                         <form onSubmit={(e) => { e.preventDefault(); handleSendReply(); }}>
                             <div className="grid gap-4">
                                 <Textarea
-                                    className="p-4"
+                                    className="p-4 min-h-[100px] max-h-[200px]"
                                     placeholder={`${t.mail.replyTo} ${mail.sender_name}...`}
                                     value={replyText}
                                     onChange={(e) => setReplyText(e.target.value)}

@@ -27,6 +27,7 @@ interface MailProps {
     onToggleStar?: (id: string) => Promise<void>
     onMoveToTrash?: (id: string) => Promise<void>
     onMoveToSpam?: (id: string) => Promise<void>
+    onSearch?: (query: string) => void
     defaultLayout?: number[] | undefined
     defaultCollapsed?: boolean
     navCollapsedSize?: number
@@ -45,6 +46,7 @@ export function Mail({
     onToggleStar,
     onMoveToTrash,
     onMoveToSpam,
+    onSearch,
     defaultLayout = [20, 32, 48],
     defaultCollapsed = false,
     navCollapsedSize = 4,
@@ -126,6 +128,8 @@ export function Mail({
                         items={mails} 
                         selectedId={selectedMail?.id || null} 
                         loading={loading}
+                        folder={folder}
+                        onSearch={onSearch}
                         onSelect={(id) => {
                             const mail = mails.find(m => m.id === id)
                             if (mail) {

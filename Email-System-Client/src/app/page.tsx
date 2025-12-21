@@ -47,13 +47,13 @@ export default function Page() {
     unreadCounts,
     setFolder,
     selectEmail,
-    selectEmailById,
     refreshEmails,
     markAsRead,
     markAsUnread,
     toggleStar,
     moveToTrash,
     moveToSpam,
+    searchEmails,
   } = useEmails({ initialFolder: 'inbox' })
 
   // Redirect to login if not authenticated
@@ -215,6 +215,7 @@ export default function Page() {
           onToggleStar={toggleStar}
           onMoveToTrash={moveToTrash}
           onMoveToSpam={moveToSpam}
+          onSearch={searchEmails}
           defaultLayout={layout}
           defaultCollapsed={collapsed}
           navCollapsedSize={4}

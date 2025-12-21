@@ -189,9 +189,142 @@ Những service này cho phép:
    ```
 3. Kiểm tra trong VeryGoodMail Inbox
 
-## 🚀 Bước 3: Deploy Frontend (Vercel)
+## 🚀 Bước 3: Deploy Frontend
 
-### 3.1 Deploy lên Vercel (Khuyến nghị)
+### Option A: GitHub Pages (Static Export - Khuyến nghị cho verygoodmail.tech)
+
+> **Lưu ý quan trọng:** GitHub Pages chỉ hỗ trợ static files. Với Next.js, bạn cần sử dụng `output: 'export'` để tạo static HTML.
+
+#### Bước 3.1: Cấu hình Next.js cho Static Export
+
+Thêm vào file `Email-System-Client/next.config.ts`:
+```typescript
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  output: 'export',
+  // Disable image optimization for static export
+  images: {
+    unoptimized: true,
+  },
+  // Base path nếu deploy vào subdirectory
+  // basePath: '/VeryGoodMail',
+  trailingSlash: true,
+};
+
+export default nextConfig;
+```
+
+#### Bước 3.2: Tạo GitHub Actions Workflow
+
+Tạo file `.github/workflows/deploy.yml`:
+```yaml
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: 'npm'
+          cache-dependency-path: Email-System-Client/package-lock.json
+
+      - name: Install dependencies
+        working-directory: Email-System-Client
+        run: npm ci
+
+      - name: Build
+        working-directory: Email-System-Client
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
+        run: npm run build
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: Email-System-Client/out
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+```
+
+#### Bước 3.3: Cấu hình GitHub Repository
+
+1. Vào Repository → Settings → Pages
+2. Source: chọn "GitHub Actions"
+3. Vào Settings → Secrets and variables → Actions
+4. Thêm các secrets:
+   - `NEXT_PUBLIC_SUPABASE_URL`
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+   - `NEXT_PUBLIC_API_URL`
+
+#### Bước 3.4: Cấu hình Custom Domain (verygoodmail.tech)
+
+1. Trong Repository → Settings → Pages → Custom domain
+2. Nhập: `verygoodmail.tech`
+3. Tick "Enforce HTTPS"
+
+4. Thêm DNS Records tại domain provider:
+```
+# For apex domain (verygoodmail.tech)
+Type: A
+Host: @
+Value: 185.199.108.153
+
+Type: A
+Host: @
+Value: 185.199.109.153
+
+Type: A
+Host: @
+Value: 185.199.110.153
+
+Type: A
+Host: @
+Value: 185.199.111.153
+
+# For www subdomain
+Type: CNAME
+Host: www
+Value: imnothoan.github.io
+```
+
+5. Tạo file `Email-System-Client/public/CNAME` với nội dung:
+```
+verygoodmail.tech
+```
+
+### Option B: Deploy lên Vercel (Server-Side Rendering)
 
 1. **Fork repository** hoặc push code lên GitHub
 2. Đăng nhập vào [vercel.com](https://vercel.com)
@@ -214,7 +347,7 @@ NEXT_PUBLIC_API_URL=https://api.verygoodmail.tech
    - Thêm `verygoodmail.tech` và `www.verygoodmail.tech`
    - Cập nhật DNS theo hướng dẫn Vercel
 
-### 3.2 Alternative: Deploy lên Netlify
+### Option C: Deploy lên Netlify
 
 ```bash
 # Build

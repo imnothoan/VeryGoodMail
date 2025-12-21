@@ -33,19 +33,31 @@ import { Attachment } from "@/types"
 
 interface ComposeDialogProps {
     children: React.ReactNode
+    initialData?: {
+        to?: string
+        subject?: string
+        body?: string
+        draftId?: string // ID of draft to update
+    }
+    onDraftUpdated?: (draftId: string) => void
 }
 
-export function ComposeDialog({ children }: ComposeDialogProps) {
+export function ComposeDialog({ children, initialData, onDraftUpdated: _onDraftUpdated }: ComposeDialogProps) {
     const { t, language } = useI18n()
     const [open, setOpen] = React.useState(false)
     const [isLoading, setIsLoading] = React.useState(false)
     const [attachments, setAttachments] = React.useState<UploadedFile[]>([])
     const [uploadError, setUploadError] = React.useState<string | null>(null)
     const [emailSentSuccessfully, setEmailSentSuccessfully] = React.useState(false)
+    const [_draftId, setDraftId] = React.useState<string | undefined>(initialData?.draftId)
     const fileInputRef = React.useRef<HTMLInputElement>(null)
 
+    // Validation schema allows empty 'to' field to support:
+    // 1. Auto-saving drafts when dialog closes (user might not have entered recipient yet)
+    // 2. Saving incomplete drafts manually
+    // Full validation happens only when user clicks "Send"
     const formSchema = React.useMemo(() => z.object({
-        to: z.string().email({ message: t.auth.invalidEmail }),
+        to: z.string().email({ message: t.auth.invalidEmail }).or(z.literal('')),
         subject: z.string().min(1, { 
             message: language === 'vi' ? 'Tiêu đề là bắt buộc' : 'Subject is required' 
         }),
@@ -57,11 +69,23 @@ export function ComposeDialog({ children }: ComposeDialogProps) {
     const form = useForm<z.infer<typeof formSchema>>({
         resolver: zodResolver(formSchema),
         defaultValues: {
-            to: "",
-            subject: "",
-            body: "",
+            to: initialData?.to || "",
+            subject: initialData?.subject || "",
+            body: initialData?.body || "",
         },
     })
+
+    // Update form when initialData changes
+    React.useEffect(() => {
+        if (initialData) {
+            form.reset({
+                to: initialData.to || "",
+                subject: initialData.subject || "",
+                body: initialData.body || "",
+            })
+            setDraftId(initialData.draftId)
+        }
+    }, [initialData, form])
 
     // Refs to track state for cleanup without causing re-renders
     const attachmentsRef = React.useRef<UploadedFile[]>([])
@@ -76,41 +100,73 @@ export function ComposeDialog({ children }: ComposeDialogProps) {
         emailSentRef.current = emailSentSuccessfully
     }, [emailSentSuccessfully])
 
-    // Reset form and attachments when dialog closes
+    // Auto-save draft and cleanup when dialog closes
     // Note: We intentionally exclude 'form' from dependencies to prevent infinite loops
     // The form.reset() call is safe here because it's only triggered on dialog close
     React.useEffect(() => {
         if (!open) {
-            // Cleanup any uploaded files that weren't sent (using refs to avoid dependency issues)
-            const cleanup = async () => {
-                // Only cleanup if email was NOT sent successfully
-                if (emailSentRef.current) return
+            // Auto-save and cleanup logic
+            const handleClose = async () => {
+                // If email was already sent, no need for draft or cleanup
+                if (emailSentRef.current) {
+                    // Just reset form
+                    requestAnimationFrame(() => {
+                        form.reset({ to: "", subject: "", body: "" })
+                        setAttachments([])
+                        setUploadError(null)
+                        setEmailSentSuccessfully(false)
+                    })
+                    return
+                }
                 
-                // Delete uploaded files that weren't sent
-                const successfulUploads = attachmentsRef.current.filter(
-                    a => a.status === 'done' && a.attachment?.storage_path
+                // Get current form values
+                const values = form.getValues()
+                const hasContent = values.to || values.subject || values.body
+                const successfulAttachments = attachmentsRef.current.filter(
+                    a => a.status === 'done' && a.attachment
                 )
-                for (const upload of successfulUploads) {
-                    if (upload.attachment?.storage_path) {
-                        await emailService.deleteAttachment(upload.attachment.storage_path)
+                
+                // Auto-save as draft if there's content
+                if (hasContent || successfulAttachments.length > 0) {
+                    try {
+                        const validAttachments = successfulAttachments.map(a => a.attachment!)
+                        
+                        await emailService.sendEmailWithAttachments({
+                            to: values.to ? [values.to] : [],
+                            subject: values.subject || '',
+                            body_text: values.body || '',
+                            is_draft: true,
+                            attachments: validAttachments,
+                        })
+                        console.log('Draft auto-saved')
+                    } catch (error) {
+                        console.error('Failed to auto-save draft:', error)
+                        // If draft save fails, cleanup uploaded attachments
+                        for (const upload of successfulAttachments) {
+                            if (upload.attachment?.storage_path) {
+                                await emailService.deleteAttachment(upload.attachment.storage_path)
+                            }
+                        }
+                    }
+                } else {
+                    // No content, just cleanup uploaded files
+                    for (const upload of successfulAttachments) {
+                        if (upload.attachment?.storage_path) {
+                            await emailService.deleteAttachment(upload.attachment.storage_path)
+                        }
                     }
                 }
+                
+                // Reset form state
+                requestAnimationFrame(() => {
+                    form.reset({ to: "", subject: "", body: "" })
+                    setAttachments([])
+                    setUploadError(null)
+                    setEmailSentSuccessfully(false)
+                })
             }
             
-            cleanup()
-            
-            // Reset form state after a short delay to avoid race conditions
-            // Use requestAnimationFrame for better performance
-            requestAnimationFrame(() => {
-                form.reset({
-                    to: "",
-                    subject: "",
-                    body: "",
-                })
-                setAttachments([])
-                setUploadError(null)
-                setEmailSentSuccessfully(false)
-            })
+            handleClose()
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [open]) // Only depend on 'open' to prevent infinite loops

@@ -55,7 +55,7 @@ interface MailDisplayProps {
 
 export function MailDisplay({ 
     mail,
-    onMarkAsRead,
+    onMarkAsRead: _onMarkAsRead,
     onMarkAsUnread,
     onToggleStar,
     onMoveToTrash,
@@ -131,6 +131,12 @@ export function MailDisplay({
             // Import emailService dynamically to avoid circular dependencies
             const { emailService } = await import("@/services/email-service")
             
+            // Validate sender_email exists
+            if (!mail.sender_email || !mail.sender_email.includes('@')) {
+                console.error('Invalid sender email address')
+                return
+            }
+            
             const result = await emailService.sendEmail({
                 to: [mail.sender_email],
                 subject: mail.subject.startsWith('Re:') ? mail.subject : `Re: ${mail.subject}`,
@@ -139,10 +145,13 @@ export function MailDisplay({
 
             if (result.success) {
                 setReplyText("")
-                // Show success feedback
+                // Show success feedback - could add toast notification here
                 console.log('Reply sent successfully')
             } else {
-                console.error('Failed to send reply:', result.error)
+                // Handle specific error cases
+                const errorMsg = result.error || 'Failed to send reply'
+                console.error('Failed to send reply:', errorMsg)
+                // Could show user-friendly toast notification here
             }
         } catch (error) {
             console.error('Error sending reply:', error)
@@ -366,12 +375,14 @@ export function MailDisplay({
                     <div className="flex items-start p-4">
                         <div className="flex items-start gap-4 text-sm">
                             <Avatar>
-                                <AvatarImage alt={mail.sender_name} />
+                                <AvatarImage src={mail.sender_avatar_url} alt={mail.sender_name} />
                                 <AvatarFallback>
                                     {mail.sender_name
                                         .split(" ")
                                         .map((chunk) => chunk[0])
-                                        .join("")}
+                                        .join("")
+                                        .toUpperCase()
+                                        .slice(0, 2)}
                                 </AvatarFallback>
                             </Avatar>
                             <div className="grid gap-1">

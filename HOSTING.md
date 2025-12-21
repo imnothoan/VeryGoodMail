@@ -135,6 +135,60 @@ Khi ai đó gửi email đến @verygoodmail.tech:
 - Email được tự động phân loại (spam, social, promotions, etc.)
 - Người dùng nhận thông báo ngay lập tức qua WebSocket
 
+### 2.8 ⭐ Cấu hình Catch-All (QUAN TRỌNG)
+
+Để nhận email cho TẤT CẢ users (ví dụ: `imnothoan@verygoodmail.tech`, `user2@verygoodmail.tech`, etc.), bạn cần cấu hình **Catch-All Email**:
+
+#### Cách 1: Catch-All trong Titan Email (Khuyên dùng)
+1. Đăng nhập Titan Admin Panel
+2. Vào **Settings** → **Routing** hoặc **Email Routing**
+3. Tìm option **Catch-All** hoặc **Default Routing**
+4. Cấu hình để forward tất cả email không có mailbox riêng về `admin@verygoodmail.tech`
+
+**Cách hoạt động:**
+```
+user1@gmail.com gửi email đến → imnothoan@verygoodmail.tech
+                                    ↓
+            Titan catch-all forward → admin@verygoodmail.tech (IMAP mailbox)
+                                    ↓
+            VeryGoodMail IMAP nhận → Parse recipient header
+                                    ↓
+            Tìm user "imnothoan" trong database → Deliver vào inbox
+```
+
+#### Cách 2: Tạo Email Alias
+Nếu Titan không hỗ trợ catch-all:
+1. Với mỗi user đăng ký mới, tạo Alias email trong Titan
+2. Alias trỏ về `admin@verygoodmail.tech`
+
+**Ví dụ:**
+```
+imnothoan@verygoodmail.tech → alias → admin@verygoodmail.tech
+user2@verygoodmail.tech     → alias → admin@verygoodmail.tech
+```
+
+#### Cách 3: Sử dụng Email API Service (Nâng cao)
+Nếu cần scale lớn, cân nhắc sử dụng:
+- **Mailgun** - Có Inbound Email Routing
+- **SendGrid** - Inbound Parse Webhook
+- **Postmark** - Inbound Processing
+
+Những service này cho phép:
+- Nhận email real-time qua webhook
+- Không giới hạn số mailbox
+- Tích hợp dễ dàng hơn
+
+### 2.9 Kiểm tra nhận email từ bên ngoài
+
+1. Gửi email từ Gmail đến `admin@verygoodmail.tech`
+2. Kiểm tra server logs:
+   ```
+   📧 Processing: "Test email" from user@gmail.com
+      Recipients: admin@verygoodmail.tech
+   ✓ Email delivered to 1 user(s)
+   ```
+3. Kiểm tra trong VeryGoodMail Inbox
+
 ## 🚀 Bước 3: Deploy Frontend (Vercel)
 
 ### 3.1 Deploy lên Vercel (Khuyến nghị)

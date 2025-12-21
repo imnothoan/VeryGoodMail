@@ -11,6 +11,7 @@ export type Email = {
     user_id: string;
     sender_name: string;
     sender_email: string;
+    sender_avatar_url?: string; // Avatar URL from sender's profile
     recipient_emails: string[];
     cc_emails?: string[];
     bcc_emails?: string[];

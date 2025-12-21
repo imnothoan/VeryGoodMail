@@ -186,9 +186,19 @@ class SMTPService {
       } else if (error.code === 'EAUTH') {
         errorMessage = 'Email authentication failed';
       } else if (error.responseCode === 550) {
-        errorMessage = 'Recipient address rejected';
+        errorMessage = 'Recipient address not found or rejected';
+      } else if (error.responseCode === 551 || error.responseCode === 553) {
+        errorMessage = 'Invalid recipient address';
       } else if (error.responseCode === 552) {
         errorMessage = 'Message size exceeds limit';
+      } else if (error.responseCode === 554) {
+        errorMessage = 'Transaction failed - message rejected';
+      } else if (error.code === 'ENOTFOUND') {
+        errorMessage = 'Recipient domain not found';
+      } else if (error.code === 'ETIMEDOUT' || error.code === 'ESOCKET') {
+        errorMessage = 'Connection timeout - please try again';
+      } else if (error.message?.toLowerCase().includes('address')) {
+        errorMessage = 'Invalid email address';
       }
       
       return {

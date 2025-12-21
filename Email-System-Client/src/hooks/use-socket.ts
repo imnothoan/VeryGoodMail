@@ -25,17 +25,23 @@ const SOCKET_CONFIG = {
     autoConnect: false, // Manual connect after auth
     // Reconnection settings (exponential backoff)
     reconnection: true,
-    reconnectionAttempts: 30, // Reduced from 50 to fail faster and show error to user
+    reconnectionAttempts: 15, // Reduced for faster error feedback
     reconnectionDelay: 1000,
-    reconnectionDelayMax: 30000,
-    randomizationFactor: 0.5,
-    // Timeouts - must be reasonable for real-world networks
-    timeout: 20000,
+    reconnectionDelayMax: 10000, // Cap at 10 seconds
+    randomizationFactor: 0.3,
+    // Timeouts - balanced for responsiveness
+    timeout: 15000,
     // Force new connection on reconnect to avoid stale state
     forceNew: false,
     // Multiplexing - single connection per host
     multiplex: true,
+    // Improved ping/pong settings for connection stability
+    pingTimeout: 30000, // How long to wait for pong
+    pingInterval: 25000, // How often to ping
 };
+
+// Heartbeat interval for manual keep-alive (in ms)
+const HEARTBEAT_INTERVAL = 30000;
 
 export const useSocket = () => {
     const { user, session } = useAuth();
@@ -45,6 +51,8 @@ export const useSocket = () => {
     const [reconnectAttempt, setReconnectAttempt] = useState(0);
     const socketRef = useRef<Socket | null>(null);
     const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
+    const lastPongRef = useRef<number>(Date.now());
     const isOnlineRef = useRef(typeof navigator !== 'undefined' ? navigator.onLine : true);
     
     // Use a ref to track user ID to avoid dependency issues
@@ -54,6 +62,40 @@ export const useSocket = () => {
     useEffect(() => {
         userIdRef.current = user?.id;
     }, [user?.id]);
+
+    // Start heartbeat to keep connection alive
+    const startHeartbeat = useCallback((socketInstance: Socket) => {
+        // Clear any existing heartbeat
+        if (heartbeatIntervalRef.current) {
+            clearInterval(heartbeatIntervalRef.current);
+        }
+        
+        lastPongRef.current = Date.now();
+        
+        heartbeatIntervalRef.current = setInterval(() => {
+            if (socketInstance.connected) {
+                // Check if we've received a pong recently
+                const timeSinceLastPong = Date.now() - lastPongRef.current;
+                if (timeSinceLastPong > HEARTBEAT_INTERVAL * 2) {
+                    console.log('No pong received, reconnecting...');
+                    socketInstance.disconnect();
+                    socketInstance.connect();
+                    return;
+                }
+                
+                // Send ping
+                socketInstance.emit('ping');
+            }
+        }, HEARTBEAT_INTERVAL);
+    }, []);
+
+    // Stop heartbeat
+    const stopHeartbeat = useCallback(() => {
+        if (heartbeatIntervalRef.current) {
+            clearInterval(heartbeatIntervalRef.current);
+            heartbeatIntervalRef.current = null;
+        }
+    }, []);
 
     // Join user room for private messages
     const joinUserRoom = useCallback((socketInstance: Socket) => {
@@ -97,6 +139,9 @@ export const useSocket = () => {
                 if (!socketRef.current.connected && isOnlineRef.current) {
                     console.log('Tab visible, reconnecting...');
                     socketRef.current.connect();
+                } else if (socketRef.current.connected) {
+                    // Re-join room when tab becomes visible (in case of stale session)
+                    joinUserRoom(socketRef.current);
                 }
             }
         };
@@ -105,11 +150,12 @@ export const useSocket = () => {
         return () => {
             document.removeEventListener('visibilitychange', handleVisibilityChange);
         };
-    }, []);
+    }, [joinUserRoom]);
 
     useEffect(() => {
         // Only connect when we have a valid user session
         if (!user || !session) {
+            stopHeartbeat();
             if (socketRef.current) {
                 socketRef.current.disconnect();
                 socketRef.current = null;
@@ -157,11 +203,13 @@ export const useSocket = () => {
             setConnectionError(null);
             setReconnectAttempt(0);
             joinUserRoom(socketInstance);
+            startHeartbeat(socketInstance);
         });
 
         socketInstance.on('disconnect', (reason) => {
             console.log('Socket disconnected:', reason);
             setIsConnected(false);
+            stopHeartbeat();
             
             // Handle specific disconnect reasons
             switch (reason) {
@@ -183,6 +231,11 @@ export const useSocket = () => {
             }
         });
 
+        // Handle pong response for our custom heartbeat
+        socketInstance.on('pong', () => {
+            lastPongRef.current = Date.now();
+        });
+
         socketInstance.on('connect_error', (error) => {
             console.error('Socket connection error:', error.message);
             // Don't show error if we're offline
@@ -198,6 +251,7 @@ export const useSocket = () => {
             setConnectionError(null);
             setReconnectAttempt(0);
             joinUserRoom(socketInstance);
+            startHeartbeat(socketInstance);
         });
 
         socketInstance.on('reconnect_attempt', (attemptNumber) => {
@@ -228,6 +282,9 @@ export const useSocket = () => {
         setSocket(socketInstance);
 
         return () => {
+            // Stop heartbeat
+            stopHeartbeat();
+            
             // Capture ref value at cleanup time
             const timeoutId = reconnectTimeoutRef.current;
             if (timeoutId) {
@@ -240,15 +297,19 @@ export const useSocket = () => {
         };
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [user, session]);
-    // Note: joinUserRoom is stable (no deps) and only uses refs, so excluded from deps intentionally
+    // Note: joinUserRoom, startHeartbeat, stopHeartbeat are stable and only use refs
 
     // Manual reconnect function
     const reconnect = useCallback(() => {
         if (socketRef.current && !socketRef.current.connected && isOnlineRef.current) {
             setConnectionError(null);
+            setReconnectAttempt(0);
             socketRef.current.connect();
+        } else if (!socketRef.current && user && session && isOnlineRef.current) {
+            // Socket was completely destroyed, need to reload
+            window.location.reload();
         }
-    }, []);
+    }, [user, session]);
 
     return { 
         socket, 

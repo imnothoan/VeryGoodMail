@@ -427,10 +427,23 @@ class IMAPService {
       const senderName = envelope.from?.[0]?.name || parsed.from?.value?.[0]?.name || senderEmail;
       
       // Get recipient emails - these are the users in our system
-      const toAddresses = (envelope.to || parsed.to?.value || []).map(addr => addr.address?.toLowerCase());
-      const ccAddresses = (envelope.cc || parsed.cc?.value || []).map(addr => addr.address?.toLowerCase());
+      // Include To, CC, and also check X-Original-To header (for catch-all/forwarded emails)
+      const toAddresses = (envelope.to || parsed.to?.value || []).map(addr => addr.address?.toLowerCase()).filter(Boolean);
+      const ccAddresses = (envelope.cc || parsed.cc?.value || []).map(addr => addr.address?.toLowerCase()).filter(Boolean);
       
-      if (toAddresses.length === 0) {
+      // Check for X-Original-To or Delivered-To headers (used in forwarding/catch-all scenarios)
+      const originalTo = parsed.headers?.get('x-original-to');
+      const deliveredTo = parsed.headers?.get('delivered-to');
+      
+      // Combine all possible recipient addresses
+      let allRecipients = [...new Set([
+        ...toAddresses, 
+        ...ccAddresses,
+        ...(originalTo ? [originalTo.toLowerCase()] : []),
+        ...(deliveredTo ? [deliveredTo.toLowerCase()] : []),
+      ])];
+      
+      if (allRecipients.length === 0) {
         console.log('No recipient addresses found, skipping email');
         return;
       }
@@ -441,28 +454,35 @@ class IMAPService {
       const date = envelope.date || parsed.date || new Date();
 
       console.log(`📧 Processing: "${subject}" from ${senderEmail}`);
+      console.log(`   Recipients: ${allRecipients.join(', ')}`);
 
       // Find users in our system that match the recipient emails
       const EMAIL_DOMAIN = process.env.EMAIL_DOMAIN || 'verygoodmail.tech';
-      const allRecipients = [...new Set([...toAddresses, ...ccAddresses])];
+      
+      // Filter to only our domain recipients
+      const ourDomainRecipients = allRecipients.filter(email => 
+        email && email.endsWith(`@${EMAIL_DOMAIN}`)
+      );
+      
+      if (ourDomainRecipients.length === 0) {
+        console.log(`   No recipients for our domain (@${EMAIL_DOMAIN})`);
+        return;
+      }
       
       let deliveredCount = 0;
+      let notFoundRecipients = [];
       
-      for (const recipientEmail of allRecipients) {
-        // Only process emails for our domain
-        if (!recipientEmail.endsWith(`@${EMAIL_DOMAIN}`)) {
-          continue;
-        }
-
+      for (const recipientEmail of ourDomainRecipients) {
         // Find user by email
         const { data: userProfile, error: profileError } = await this.supabaseAdmin
           .from('profiles')
-          .select('id, email')
+          .select('id, email, full_name, avatar_url')
           .eq('email', recipientEmail)
           .single();
 
         if (profileError || !userProfile) {
-          console.log(`User not found: ${recipientEmail}`);
+          console.log(`   User not found: ${recipientEmail}`);
+          notFoundRecipients.push(recipientEmail);
           continue;
         }
 
@@ -486,6 +506,11 @@ class IMAPService {
         this.stats.emailsReceived++;
         this.stats.lastEmailTime = new Date();
         console.log(`✓ Email delivered to ${deliveredCount} user(s)`);
+      }
+      
+      if (notFoundRecipients.length > 0) {
+        console.log(`⚠ Could not find users for: ${notFoundRecipients.join(', ')}`);
+        // TODO: Could implement bounce email or store in a "pending" queue
       }
       
     } catch (error) {

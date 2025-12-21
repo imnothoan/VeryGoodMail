@@ -3,7 +3,78 @@ const router = express.Router();
 const { v4: uuidv4 } = require('uuid');
 const encryption = require('../utils/encryption');
 const smtpService = require('../services/smtp');
-const naiveBayes = require('../services/naiveBayes');
+const phobertService = require('../services/phobert');
+const naiveBayes = require('../services/naiveBayes'); // Fallback classifier
+
+/**
+ * GET /api/emails/counts/unread
+ * Get unread email counts per folder/category
+ * NOTE: This route MUST be before /:id to avoid "counts" being matched as an ID
+ */
+router.get('/counts/unread', async (req, res) => {
+  try {
+    const { supabase, user } = req;
+
+    // Get counts for each folder
+    const { data: emails, error } = await supabase
+      .from('emails')
+      .select('is_read, is_draft, is_sent, is_spam, is_trashed, is_starred, ai_category')
+      .eq('user_id', user.id);
+
+    if (error) throw error;
+
+    const counts = {
+      inbox: 0,
+      sent: 0,
+      drafts: 0,
+      spam: 0,
+      trash: 0,
+      starred: 0,
+      important: 0,
+      social: 0,
+      updates: 0,
+      promotions: 0,
+      archive: 0
+    };
+
+    emails.forEach(email => {
+      const isUnread = !email.is_read;
+      
+      // Count inbox (not sent, draft, spam, or trashed)
+      if (!email.is_sent && !email.is_draft && !email.is_spam && !email.is_trashed && isUnread) {
+        counts.inbox++;
+      }
+      
+      // Count drafts
+      if (email.is_draft && !email.is_trashed) {
+        counts.drafts++;
+      }
+      
+      // Count spam
+      if (email.is_spam && !email.is_trashed && isUnread) {
+        counts.spam++;
+      }
+      
+      // Count starred
+      if (email.is_starred && !email.is_trashed && isUnread) {
+        counts.starred++;
+      }
+      
+      // Count by AI category
+      if (!email.is_trashed && !email.is_spam && !email.is_draft && isUnread) {
+        const category = email.ai_category;
+        if (category && counts.hasOwnProperty(category)) {
+          counts[category]++;
+        }
+      }
+    });
+
+    res.json(counts);
+  } catch (error) {
+    console.error('Error getting unread counts:', error);
+    res.status(500).json({ error: 'Failed to get unread counts' });
+  }
+});
 
 /**
  * GET /api/emails
@@ -182,26 +253,51 @@ router.post('/', async (req, res) => {
     const encryptedHtml = body_html ? encryption.encrypt(body_html) : null;
     const encryptedSnippet = snippet ? encryption.encrypt(snippet) : null;
 
-    // AI Classification using Naive Bayes
+    // AI Classification - Priority: PhoBERT > Naive Bayes fallback
     let aiCategory = 'primary';
     let aiSpamScore = 0;
     let isSpam = false;
+    let aiSentiment = 'neutral';
+    let classificationSource = 'none';
     
     if (body_text || subject) {
+      const textToClassify = `${subject || ''} ${body_text || ''}`;
+      
+      // Try PhoBERT first (if available)
       try {
-        const classification = naiveBayes.classify(`${subject || ''} ${body_text || ''}`);
-        aiCategory = classification.category;
-        isSpam = classification.isSpam;
-        aiSpamScore = isSpam ? classification.confidence / 100 : 0;
+        const phobertResult = await phobertService.classifyEmail(subject, body_text);
         
-        // Map category names
-        if (aiCategory === 'ham') aiCategory = 'primary';
-        if (aiCategory === 'spam') {
-          aiCategory = 'spam';
-          isSpam = true;
+        if (phobertResult) {
+          // PhoBERT classification succeeded
+          aiCategory = phobertResult.category;
+          isSpam = phobertResult.isSpam;
+          aiSpamScore = phobertResult.spamScore;
+          aiSentiment = phobertResult.sentiment || 'neutral';
+          classificationSource = 'phobert';
+          console.log('Email classified by PhoBERT:', { aiCategory, isSpam, aiSentiment });
+        } else {
+          // PhoBERT not available, use Naive Bayes fallback
+          throw new Error('PhoBERT not available, using fallback');
         }
-      } catch (classifyError) {
-        console.log('Classification skipped:', classifyError.message);
+      } catch (phobertError) {
+        // Fallback to Naive Bayes
+        console.log('Using Naive Bayes fallback:', phobertError.message);
+        try {
+          const classification = naiveBayes.classify(textToClassify);
+          aiCategory = classification.category;
+          isSpam = classification.isSpam;
+          aiSpamScore = isSpam ? classification.confidence / 100 : 0;
+          classificationSource = 'naive_bayes';
+          
+          // Map category names
+          if (aiCategory === 'ham') aiCategory = 'primary';
+          if (aiCategory === 'spam') {
+            aiCategory = 'spam';
+            isSpam = true;
+          }
+        } catch (classifyError) {
+          console.log('Classification skipped:', classifyError.message);
+        }
       }
     }
 
@@ -238,6 +334,8 @@ router.post('/', async (req, res) => {
       is_spam: isSpam,
       ai_category: aiCategory,
       ai_spam_score: aiSpamScore,
+      ai_sentiment: aiSentiment,
+      ai_classification_source: classificationSource,
       date: new Date().toISOString()
     };
 
@@ -460,75 +558,6 @@ router.post('/bulk', async (req, res) => {
   } catch (error) {
     console.error('Error in bulk operation:', error);
     res.status(500).json({ error: 'Failed to perform bulk operation' });
-  }
-});
-
-/**
- * GET /api/emails/counts/unread
- * Get unread email counts per folder/category
- */
-router.get('/counts/unread', async (req, res) => {
-  try {
-    const { supabase, user } = req;
-
-    // Get counts for each folder
-    const { data: emails, error } = await supabase
-      .from('emails')
-      .select('is_read, is_draft, is_sent, is_spam, is_trashed, is_starred, ai_category')
-      .eq('user_id', user.id);
-
-    if (error) throw error;
-
-    const counts = {
-      inbox: 0,
-      sent: 0,
-      drafts: 0,
-      spam: 0,
-      trash: 0,
-      starred: 0,
-      important: 0,
-      social: 0,
-      updates: 0,
-      promotions: 0,
-      archive: 0
-    };
-
-    emails.forEach(email => {
-      const isUnread = !email.is_read;
-      
-      // Count inbox (not sent, draft, spam, or trashed)
-      if (!email.is_sent && !email.is_draft && !email.is_spam && !email.is_trashed && isUnread) {
-        counts.inbox++;
-      }
-      
-      // Count drafts
-      if (email.is_draft && !email.is_trashed) {
-        counts.drafts++;
-      }
-      
-      // Count spam
-      if (email.is_spam && !email.is_trashed && isUnread) {
-        counts.spam++;
-      }
-      
-      // Count starred
-      if (email.is_starred && !email.is_trashed && isUnread) {
-        counts.starred++;
-      }
-      
-      // Count by AI category
-      if (!email.is_trashed && !email.is_spam && !email.is_draft && isUnread) {
-        const category = email.ai_category;
-        if (category && counts.hasOwnProperty(category)) {
-          counts[category]++;
-        }
-      }
-    });
-
-    res.json(counts);
-  } catch (error) {
-    console.error('Error getting unread counts:', error);
-    res.status(500).json({ error: 'Failed to get unread counts' });
   }
 });
 

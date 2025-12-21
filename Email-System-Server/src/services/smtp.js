@@ -17,9 +17,13 @@ class SMTPService {
     );
 
     if (this.isConfigured) {
+      // Parse port with validation
+      const port = parseInt(process.env.SMTP_PORT || '587', 10);
+      const validPort = !isNaN(port) && port > 0 && port <= 65535 ? port : 587;
+      
       this.transporter = nodemailer.createTransport({
         host: process.env.SMTP_HOST,
-        port: parseInt(process.env.SMTP_PORT || '587'),
+        port: validPort,
         secure: process.env.SMTP_SECURE === 'true', // true for 465, false for other ports
         auth: {
           user: process.env.SMTP_USER,
@@ -160,7 +164,7 @@ class SMTPService {
       return {
         success: false,
         error: errorMessage,
-        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+        // Don't expose sensitive error details even in development
       };
     }
   }

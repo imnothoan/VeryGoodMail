@@ -40,6 +40,7 @@ export function ComposeDialog({ children }: ComposeDialogProps) {
     const [isLoading, setIsLoading] = React.useState(false)
     const [attachments, setAttachments] = React.useState<UploadedFile[]>([])
     const [uploadError, setUploadError] = React.useState<string | null>(null)
+    const [emailSentSuccessfully, setEmailSentSuccessfully] = React.useState(false)
     const fileInputRef = React.useRef<HTMLInputElement>(null)
 
     const formSchema = React.useMemo(() => z.object({
@@ -61,14 +62,31 @@ export function ComposeDialog({ children }: ComposeDialogProps) {
         },
     })
 
+    // Cleanup orphaned files when dialog closes without sending
+    const cleanupOrphanedFiles = React.useCallback(async () => {
+        // Only cleanup if email was NOT sent successfully
+        if (emailSentSuccessfully) return
+        
+        // Delete uploaded files that weren't sent
+        const successfulUploads = attachments.filter(a => a.status === 'done' && a.attachment?.storage_path)
+        for (const upload of successfulUploads) {
+            if (upload.attachment?.storage_path) {
+                await emailService.deleteAttachment(upload.attachment.storage_path)
+            }
+        }
+    }, [attachments, emailSentSuccessfully])
+
     // Reset form and attachments when dialog closes
     React.useEffect(() => {
         if (!open) {
+            // Cleanup any uploaded files that weren't sent
+            cleanupOrphanedFiles()
             form.reset()
             setAttachments([])
             setUploadError(null)
+            setEmailSentSuccessfully(false)
         }
-    }, [open, form])
+    }, [open, form, cleanupOrphanedFiles])
 
     const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
         const files = event.target.files
@@ -162,6 +180,8 @@ export function ComposeDialog({ children }: ComposeDialogProps) {
             })
 
             if (result.success) {
+                // Mark email as sent so we don't cleanup the attachments
+                setEmailSentSuccessfully(true)
                 setOpen(false)
                 form.reset()
                 setAttachments([])
@@ -201,6 +221,8 @@ export function ComposeDialog({ children }: ComposeDialogProps) {
                 is_draft: true,
                 attachments: validAttachments,
             })
+            // Mark as sent to prevent cleanup (drafts also use the attachments)
+            setEmailSentSuccessfully(true)
             setOpen(false)
             form.reset()
             setAttachments([])

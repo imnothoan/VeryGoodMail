@@ -1,0 +1,56 @@
+# Dependencies
+node_modules/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Build outputs
+dist/
+build/
+.next/
+out/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Python
+__pycache__/
+*.py[cod]
+.Python
+env/
+venv/
+.venv/
+*.egg-info/
+
+# PyTorch models (large files)
+*.pt
+*.pth
+*.bin
+*.safetensors
+
+# Temp files
+tmp/
+temp/
+*.tmp
+
+# Coverage
+coverage/
+.coverage
+
+# Misc
+*.bak
+*.orig

@@ -1,0 +1,31 @@
+{
+  "name": "email-system-server",
+  "version": "1.0.0",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "email",
+    "api",
+    "phobert",
+    "ai"
+  ],
+  "author": "Hoàn",
+  "license": "MIT",
+  "description": "VeryGoodMail API Server - Email system with AI-powered features",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.89.0",
+    "cors": "^2.8.5",
+    "crypto-js": "^4.2.0",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.2.1",
+    "helmet": "^8.1.0",
+    "natural": "^8.1.0",
+    "socket.io": "^4.8.1",
+    "uuid": "^13.0.0"
+  }
+}

@@ -125,5 +125,8 @@ export const en: Translations = {
     unauthorized: 'Session expired. Please sign in again.',
     forbidden: 'You do not have permission to perform this action.',
     notFound: 'Content not found.',
+    fileTooLarge: 'File too large. Maximum size is 50MB.',
+    invalidFileType: 'File type not supported.',
+    uploadFailed: 'Upload failed. Please try again.',
   },
 };

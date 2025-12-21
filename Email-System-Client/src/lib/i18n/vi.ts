@@ -123,6 +123,9 @@ export const vi = {
     unauthorized: 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.',
     forbidden: 'Bạn không có quyền thực hiện thao tác này.',
     notFound: 'Không tìm thấy nội dung.',
+    fileTooLarge: 'File quá lớn. Kích thước tối đa là 50MB.',
+    invalidFileType: 'Loại file không được hỗ trợ.',
+    uploadFailed: 'Tải lên thất bại. Vui lòng thử lại.',
   },
 };
 

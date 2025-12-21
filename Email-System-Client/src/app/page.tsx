@@ -176,7 +176,7 @@ export default function Page() {
                 </div>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem>
+              <DropdownMenuItem onClick={() => router.push('/account')}>
                 <User className="mr-2 h-4 w-4" />
                 <span>{t.settings.account}</span>
               </DropdownMenuItem>

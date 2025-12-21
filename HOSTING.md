@@ -274,9 +274,15 @@ sudo certbot --nginx -d api.verygoodmail.tech
 
 ### 5.2 Storage Setup
 1. Vào Storage → Create Bucket
-2. Tên: `media`
-3. Public: Yes
-4. File size limit: 52428800 (50MB)
+2. Tạo bucket `media` (cho email attachments):
+   - Tên: `media`
+   - Public: No (private)
+   - File size limit: 52428800 (50MB)
+3. Tạo bucket `avatars` (cho ảnh đại diện):
+   - Tên: `avatars`
+   - Public: Yes (public - để hiển thị trong email)
+   - File size limit: 2097152 (2MB)
+4. Chạy phần Storage Policies trong `supabase-schema.sql`
 
 ### 5.3 Auth Setup
 1. Vào Authentication → Providers
@@ -336,7 +342,9 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 - [ ] Backend deploy thành công
 - [ ] SSL certificates hoạt động
 - [ ] Supabase database setup
-- [ ] Storage bucket tạo xong
+- [ ] Storage bucket `media` tạo xong
+- [ ] Storage bucket `avatars` tạo xong (public)
+- [ ] Storage policies đã chạy
 - [ ] Environment variables đầy đủ
 - [ ] SMTP gửi email được (gửi ra ngoài)
 - [ ] IMAP nhận email được (nhận từ bên ngoài)

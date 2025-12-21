@@ -108,6 +108,24 @@ export const vi = {
     systemMode: 'Theo hệ thống',
     notifications: 'Thông báo',
     privacy: 'Quyền riêng tư',
+    // Account settings
+    profileSettings: 'Cài đặt hồ sơ',
+    displayName: 'Tên hiển thị',
+    displayNameHelp: 'Tên này sẽ hiển thị khi bạn gửi email cho người khác',
+    avatar: 'Ảnh đại diện',
+    avatarHelp: 'Ảnh đại diện của bạn sẽ hiển thị trong email gửi đi',
+    uploadAvatar: 'Tải ảnh lên',
+    removeAvatar: 'Xóa ảnh',
+    changesSaved: 'Đã lưu thay đổi',
+    savingChanges: 'Đang lưu...',
+  },
+  
+  // AI Categories (for tooltips)
+  aiCategories: {
+    importantDesc: 'Email quan trọng từ liên hệ thường xuyên hoặc có nội dung cần chú ý',
+    socialDesc: 'Thông báo từ mạng xã hội như Facebook, Twitter, LinkedIn...',
+    updatesDesc: 'Email xác nhận, thông báo tài khoản, hóa đơn, biên nhận...',
+    promotionsDesc: 'Ưu đãi, khuyến mãi, quảng cáo từ các cửa hàng và dịch vụ',
   },
   
   // Footer

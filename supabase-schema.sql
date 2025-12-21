@@ -460,10 +460,14 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.threads;
 -- ============================================================
 -- STORAGE BUCKET SETUP
 -- ============================================================
--- Note: The bucket must be created via Supabase Dashboard or API first
--- Run this SQL after creating the 'media' bucket
+-- Note: Buckets must be created via Supabase Dashboard or API first
+-- Required buckets:
+-- 1. 'media' - for email attachments (private)
+-- 2. 'avatars' - for user profile pictures (public)
 
--- Storage policies for 'media' bucket
+-- ============================================================
+-- Storage policies for 'media' bucket (attachments)
+-- ============================================================
 -- Allow authenticated users to upload files to their own folder
 CREATE POLICY "Users can upload files to own folder" ON storage.objects
     FOR INSERT
@@ -506,6 +510,42 @@ CREATE POLICY "Users can delete own files" ON storage.objects
 --     FOR SELECT
 --     TO public
 --     USING (bucket_id = 'media');
+
+-- ============================================================
+-- Storage policies for 'avatars' bucket (public user profile pictures)
+-- ============================================================
+-- Allow authenticated users to upload avatars to their own folder
+CREATE POLICY "Users can upload own avatar" ON storage.objects
+    FOR INSERT
+    TO authenticated
+    WITH CHECK (
+        bucket_id = 'avatars' AND
+        (storage.foldername(name))[1] = auth.uid()::text
+    );
+
+-- Allow public read access to all avatars (for displaying in emails)
+CREATE POLICY "Public read access for avatars" ON storage.objects
+    FOR SELECT
+    TO public
+    USING (bucket_id = 'avatars');
+
+-- Allow authenticated users to update their own avatars
+CREATE POLICY "Users can update own avatar" ON storage.objects
+    FOR UPDATE
+    TO authenticated
+    USING (
+        bucket_id = 'avatars' AND
+        (storage.foldername(name))[1] = auth.uid()::text
+    );
+
+-- Allow authenticated users to delete their own avatars
+CREATE POLICY "Users can delete own avatar" ON storage.objects
+    FOR DELETE
+    TO authenticated
+    USING (
+        bucket_id = 'avatars' AND
+        (storage.foldername(name))[1] = auth.uid()::text
+    );
 
 -- ============================================================
 -- © 2025 VeryGoodMail by Hoàn

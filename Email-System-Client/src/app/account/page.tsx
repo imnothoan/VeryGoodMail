@@ -19,6 +19,34 @@ import { ModeToggle } from "@/components/mode-toggle"
 // Maximum avatar size: 2MB
 const MAX_AVATAR_SIZE = 2 * 1024 * 1024
 const ALLOWED_AVATAR_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+const AVATARS_BUCKET = 'avatars'
+
+/**
+ * Extract storage path from a Supabase public URL
+ * @param publicUrl - Full public URL from Supabase
+ * @param bucket - Bucket name to extract path from
+ * @returns Path within the bucket, or null if not found
+ */
+function extractStoragePath(publicUrl: string | null, bucket: string): string | null {
+    if (!publicUrl) return null
+    
+    try {
+        const url = new URL(publicUrl)
+        // Supabase storage URLs follow pattern: /storage/v1/object/public/{bucket}/{path}
+        const pathParts = url.pathname.split(`/${bucket}/`)
+        if (pathParts.length > 1) {
+            return decodeURIComponent(pathParts[1])
+        }
+    } catch {
+        // URL parsing failed, try simple string split as fallback
+        const marker = `/${bucket}/`
+        const index = publicUrl.indexOf(marker)
+        if (index !== -1) {
+            return publicUrl.substring(index + marker.length)
+        }
+    }
+    return null
+}
 
 export default function AccountPage() {
     const router = useRouter()
@@ -46,6 +74,21 @@ export default function AccountPage() {
             router.push('/login')
         }
     }, [user, authLoading, router])
+    
+    /**
+     * Delete avatar from storage
+     * @param url - Public URL of the avatar to delete
+     */
+    const deleteAvatarFromStorage = async (url: string | null): Promise<void> => {
+        const path = extractStoragePath(url, AVATARS_BUCKET)
+        if (path) {
+            try {
+                await supabase.storage.from(AVATARS_BUCKET).remove([path])
+            } catch (error) {
+                console.error('Error deleting avatar:', error)
+            }
+        }
+    }
     
     const handleSaveProfile = async () => {
         if (!user) return
@@ -131,13 +174,8 @@ export default function AccountPage() {
             const fileExt = file.name.split('.').pop()
             const fileName = `${user.id}/avatar_${Date.now()}.${fileExt}`
             
-            // Delete old avatar if exists
-            if (avatarUrl && avatarUrl.includes('avatars')) {
-                const oldPath = avatarUrl.split('/avatars/')[1]
-                if (oldPath) {
-                    await supabase.storage.from('avatars').remove([oldPath])
-                }
-            }
+            // Delete old avatar if exists (use helper function)
+            await deleteAvatarFromStorage(avatarUrl)
             
             // Upload new avatar
             const { data, error } = await supabase.storage
@@ -186,13 +224,8 @@ export default function AccountPage() {
         setIsUploadingAvatar(true)
         
         try {
-            // Delete avatar from storage
-            if (avatarUrl.includes('avatars')) {
-                const path = avatarUrl.split('/avatars/')[1]
-                if (path) {
-                    await supabase.storage.from('avatars').remove([path])
-                }
-            }
+            // Delete avatar from storage (use helper function)
+            await deleteAvatarFromStorage(avatarUrl)
             
             setAvatarUrl(null)
             

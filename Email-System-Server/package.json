@@ -17,6 +17,7 @@
   "license": "MIT",
   "description": "VeryGoodMail API Server - Email system with AI-powered features",
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@supabase/supabase-js": "^2.89.0",
     "cors": "^2.8.5",
     "crypto-js": "^4.2.0",

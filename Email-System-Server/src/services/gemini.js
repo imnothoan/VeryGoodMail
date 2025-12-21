@@ -1,270 +1,107 @@
 /**
  * Gemini AI Service for Email Summarization
- * Uses Google's Gemini API for email content summarization
- * 
- * © 2025 VeryGoodMail by Hoàn
+ * Uses Google's Gemini SDK
+ * FIX: Updated model name to resolve 404 error
  */
+
+const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 class GeminiService {
   constructor() {
     this.apiKey = process.env.GEMINI_API_KEY;
-    // Use Gemini 2.0 Flash model (latest and most capable)
-    this.baseUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
-    this.maxRetries = 3;
-    this.retryDelay = 1000;
-    this.timeout = 30000; // 30 seconds timeout
     
-    // Log configuration status
     if (this.apiKey) {
-      console.log('✓ Gemini AI configured (model: gemini-2.0-flash)');
+      this.genAI = new GoogleGenerativeAI(this.apiKey);
+      
+      // SỬA Ở ĐÂY: Thêm chữ "-latest" để Google nhận diện chính xác
+      this.model = this.genAI.getGenerativeModel({ 
+        model: "gemini-2.5-flash", 
+        generationConfig: {
+          temperature: 0.7,
+          topK: 40,
+          topP: 0.95,
+          maxOutputTokens: 1024,
+        }
+      });
+      console.log('✓ Gemini AI configured (model: gemini-1.5-flash-latest)');
     } else {
-      console.warn('⚠ Gemini API key not configured. AI features will return fallback responses.');
+      console.warn('⚠ Gemini API key not configured.');
     }
   }
 
-  /**
-   * Generate content using Gemini API
-   * @param {string} prompt - The prompt to send
-   * @returns {Promise<string>} - Generated response
-   */
   async generateContent(prompt) {
-    if (!this.apiKey) {
-      throw new Error('Gemini API key not configured');
-    }
+    if (!this.apiKey) throw new Error('Gemini API key not configured');
 
-    let lastError;
-    
-    for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
-      try {
-        // Create AbortController for timeout
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), this.timeout);
-
-        const response = await fetch(this.baseUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-goog-api-key': this.apiKey
-          },
-          body: JSON.stringify({
-            contents: [{
-              parts: [{
-                text: prompt
-              }]
-            }],
-            generationConfig: {
-              temperature: 0.7,
-              topK: 40,
-              topP: 0.95,
-              maxOutputTokens: 1024,
-            },
-            safetySettings: [
-              {
-                category: 'HARM_CATEGORY_HARASSMENT',
-                threshold: 'BLOCK_MEDIUM_AND_ABOVE'
-              },
-              {
-                category: 'HARM_CATEGORY_HATE_SPEECH',
-                threshold: 'BLOCK_MEDIUM_AND_ABOVE'
-              }
-            ]
-          }),
-          signal: controller.signal
-        });
-
-        clearTimeout(timeoutId);
-
-        if (!response.ok) {
-          const errorData = await response.text();
-          throw new Error(`Gemini API error: ${response.status} - ${errorData}`);
-        }
-
-        const data = await response.json();
-        
-        if (data.candidates && data.candidates[0] && data.candidates[0].content) {
-          return data.candidates[0].content.parts[0].text;
-        }
-        
-        // Check for blocked content
-        if (data.promptFeedback?.blockReason) {
-          throw new Error(`Content blocked: ${data.promptFeedback.blockReason}`);
-        }
-        
-        throw new Error('Invalid response structure from Gemini API');
-      } catch (error) {
-        lastError = error;
-        
-        // Don't retry on abort/timeout
-        if (error.name === 'AbortError') {
-          throw new Error('Request timeout - Gemini API took too long to respond');
-        }
-        
-        console.error(`Gemini API attempt ${attempt} failed:`, error.message);
-        
-        if (attempt < this.maxRetries) {
-          await new Promise(resolve => setTimeout(resolve, this.retryDelay * attempt));
-        }
+    try {
+      const result = await this.model.generateContent(prompt);
+      const response = await result.response;
+      return response.text();
+    } catch (error) {
+      // Nếu vẫn lỗi 404, in ra console để biết đường sửa tiếp
+      console.error("Gemini Critical Error:", error.message);
+      
+      // Fallback: Nếu model Flash bị lỗi, thử gợi ý người dùng đổi sang Pro
+      if (error.message.includes("404") || error.message.includes("not found")) {
+        throw new Error("Model không tồn tại. Hãy thử đổi 'gemini-1.5-flash-latest' thành 'gemini-pro' trong code.");
       }
+      throw error;
     }
-
-    throw lastError;
   }
 
-  /**
-   * Summarize email content
-   * @param {string} subject - Email subject
-   * @param {string} body - Email body
-   * @param {string} language - Output language ('vi' or 'en')
-   * @returns {Promise<object>} - Summary object with title and content
-   */
+  // --- CÁC HÀM DƯỚI GIỮ NGUYÊN LOGIC ---
+
   async summarizeEmail(subject, body, language = 'vi') {
-    const languageInstruction = language === 'vi' 
-      ? 'Trả lời bằng tiếng Việt.'
-      : 'Reply in English.';
-
+    const languageInstruction = language === 'vi' ? 'Trả lời bằng tiếng Việt.' : 'Reply in English.';
     const prompt = `${languageInstruction}
-
-Hãy tóm tắt email sau một cách ngắn gọn (tối đa 2-3 câu):
-
-Tiêu đề: ${subject || 'Không có tiêu đề'}
-
-Nội dung:
-${body || 'Không có nội dung'}
-
-Yêu cầu:
-1. Tóm tắt ý chính của email
-2. Nêu hành động cần thiết (nếu có)
-3. Giữ ngắn gọn, súc tích`;
+Hãy tóm tắt email sau ngắn gọn (2-3 câu):
+Tiêu đề: ${subject || 'Không có'}
+Nội dung: ${body || 'Không có'}
+Yêu cầu: Tóm tắt ý chính và hành động cần thiết.`;
 
     try {
       const summary = await this.generateContent(prompt);
-      return {
-        success: true,
-        summary: summary.trim(),
-        language
-      };
+      return { success: true, summary: summary.trim(), language };
     } catch (error) {
-      console.error('Email summarization failed:', error.message);
-      return {
-        success: false,
-        summary: language === 'vi' 
-          ? 'Không thể tạo tóm tắt. Vui lòng thử lại sau.'
-          : 'Unable to generate summary. Please try again later.',
-        error: error.message,
-        language
-      };
+      return { success: false, summary: 'Lỗi hệ thống AI.', error: error.message, language };
     }
   }
 
-  /**
-   * Generate smart reply suggestions
-   * @param {string} emailContent - Original email content
-   * @param {string} language - Response language
-   * @returns {Promise<array>} - Array of reply suggestions
-   */
   async generateSmartReplies(emailContent, language = 'vi') {
-    const languageInstruction = language === 'vi'
-      ? 'Tạo 3 gợi ý trả lời bằng tiếng Việt.'
-      : 'Generate 3 reply suggestions in English.';
-
-    const prompt = `${languageInstruction}
-
-Email gốc:
-${emailContent}
-
-Yêu cầu:
-1. Tạo 3 câu trả lời ngắn gọn phù hợp
-2. Mỗi câu trả lời là một tùy chọn khác nhau (đồng ý, từ chối lịch sự, cần thêm thông tin)
-3. Trả lời theo định dạng JSON array: ["reply1", "reply2", "reply3"]`;
-
+    const prompt = `Tạo 3 câu trả lời ngắn gọn cho email này dưới dạng JSON Array (Ví dụ: ["Câu 1", "Câu 2"]). Email: ${emailContent}`;
     try {
-      const response = await this.generateContent(prompt);
-      
-      // Try to parse JSON response
-      const jsonMatch = response.match(/\[.*\]/s);
-      if (jsonMatch) {
-        return {
-          success: true,
-          replies: JSON.parse(jsonMatch[0]),
-          language
-        };
+      let text = await this.generateContent(prompt);
+      text = text.replace(/```json|```/g, '').trim();
+      let replies;
+      try {
+        const jsonMatch = text.match(/\[.*\]/s);
+        replies = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
+      } catch (e) {
+        replies = text.split('\n').slice(0, 3);
       }
-      
-      // Fallback: split by newlines
-      const replies = response.split('\n')
-        .filter(line => line.trim())
-        .slice(0, 3);
-      
-      return {
-        success: true,
-        replies,
-        language
-      };
+      return { success: true, replies, language };
     } catch (error) {
-      console.error('Smart reply generation failed:', error.message);
-      return {
-        success: false,
-        replies: [],
-        error: error.message,
-        language
-      };
+      return { success: false, replies: [], error: error.message, language };
     }
   }
 
-  /**
-   * Detect email sentiment
-   * @param {string} content - Email content
-   * @returns {Promise<object>} - Sentiment analysis result
-   */
   async analyzeSentiment(content) {
-    const prompt = `Analyze the sentiment of the following email and respond with ONLY a JSON object in this exact format:
-{"sentiment": "positive|negative|neutral", "confidence": 0.0-1.0, "summary": "brief explanation"}
-
-Email:
-${content}`;
-
+    const prompt = `Analyze sentiment (positive/negative/neutral) return JSON only: {"sentiment": "...", "confidence": 0.9}. Content: ${content}`;
     try {
-      const response = await this.generateContent(prompt);
-      const jsonMatch = response.match(/\{.*\}/s);
-      
-      if (jsonMatch) {
-        return {
-          success: true,
-          ...JSON.parse(jsonMatch[0])
-        };
-      }
-      
-      return {
-        success: true,
-        sentiment: 'neutral',
-        confidence: 0.5,
-        summary: 'Unable to determine sentiment'
-      };
+      let text = await this.generateContent(prompt);
+      text = text.replace(/```json|```/g, '').trim();
+      const jsonMatch = text.match(/\{.*\}/s);
+      return jsonMatch ? { success: true, ...JSON.parse(jsonMatch[0]) } : { success: true, sentiment: 'neutral' };
     } catch (error) {
-      console.error('Sentiment analysis failed:', error.message);
-      return {
-        success: false,
-        sentiment: 'unknown',
-        confidence: 0,
-        error: error.message
-      };
+      return { success: false, error: error.message };
     }
   }
 
-  /**
-   * Check if Gemini API is configured and working
-   */
   async healthCheck() {
+    if (!this.apiKey) return { status: 'not_configured' };
     try {
-      if (!this.apiKey) {
-        return { status: 'not_configured', message: 'Gemini API key not set' };
-      }
-      
-      await this.generateContent('Say "OK" to confirm the API is working.');
-      return { status: 'healthy', message: 'Gemini API is operational' };
-    } catch (error) {
-      return { status: 'error', message: error.message };
-    }
+      await this.generateContent('Hi');
+      return { status: 'healthy' };
+    } catch (e) { return { status: 'error', message: e.message }; }
   }
 }
 

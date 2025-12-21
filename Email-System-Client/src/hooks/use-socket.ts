@@ -1,4 +1,3 @@
-/* eslint-disable react-hooks/set-state-in-effect */
 // Socket.IO hooks require setting state within effects for connection management
 // This is a valid pattern for external system synchronization
 
@@ -145,6 +144,7 @@ export const useSocket = () => {
             socketInstance.disconnect();
             socketRef.current = null;
         };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [user, session]);
     // Note: joinUserRoom is stable (no deps) and only uses refs, so excluded from deps intentionally
 

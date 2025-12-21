@@ -76,6 +76,40 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Debug endpoint for IMAP status (requires auth)
+app.get('/api/debug/imap', authMiddleware, async (req, res) => {
+  try {
+    const status = imapService.getStatus();
+    
+    // Add more detailed info for debugging
+    const debugInfo = {
+      ...status,
+      config: {
+        host: process.env.IMAP_HOST || 'not configured',
+        port: process.env.IMAP_PORT || '993',
+        secure: process.env.IMAP_SECURE !== 'false',
+        user: process.env.IMAP_USER ? `${process.env.IMAP_USER.substring(0, 5)}...` : 'not configured',
+        domain: process.env.EMAIL_DOMAIN || 'verygoodmail.tech',
+      },
+      environment: process.env.NODE_ENV || 'development',
+    };
+    
+    res.json(debugInfo);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Trigger manual email check (requires auth)
+app.post('/api/debug/imap/check', authMiddleware, async (req, res) => {
+  try {
+    const result = await imapService.checkNow();
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // API routes
 app.use('/api/emails', authMiddleware, emailRoutes);
 app.use('/api/ai', authMiddleware, aiRoutes);

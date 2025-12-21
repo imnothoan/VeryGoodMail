@@ -52,6 +52,10 @@ export function ComposeDialog({ children, initialData, onDraftUpdated: _onDraftU
     const [_draftId, setDraftId] = React.useState<string | undefined>(initialData?.draftId)
     const fileInputRef = React.useRef<HTMLInputElement>(null)
 
+    // Validation schema allows empty 'to' field to support:
+    // 1. Auto-saving drafts when dialog closes (user might not have entered recipient yet)
+    // 2. Saving incomplete drafts manually
+    // Full validation happens only when user clicks "Send"
     const formSchema = React.useMemo(() => z.object({
         to: z.string().email({ message: t.auth.invalidEmail }).or(z.literal('')),
         subject: z.string().min(1, { 

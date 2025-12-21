@@ -67,6 +67,17 @@ export function useEmails(options: UseEmailsOptions = {}): UseEmailsReturn {
 
   const totalPages = Math.ceil(totalEmails / perPage);
 
+  // Fetch unread counts
+  const fetchUnreadCounts = useCallback(async () => {
+    if (!user) return;
+    try {
+      const counts = await emailService.getUnreadCounts();
+      setUnreadCounts(counts);
+    } catch (err) {
+      console.error('Error fetching unread counts:', err);
+    }
+  }, [user]);
+
   // Fetch emails
   const fetchEmails = useCallback(async (filters: EmailFilters = {}) => {
     if (!user) return;
@@ -85,12 +96,15 @@ export function useEmails(options: UseEmailsOptions = {}): UseEmailsReturn {
 
       setEmails(result.emails);
       setTotalEmails(result.pagination.total);
+      
+      // Also refresh unread counts
+      fetchUnreadCounts();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch emails');
     } finally {
       setLoading(false);
     }
-  }, [user, folder, page, perPage, searchQuery]);
+  }, [user, folder, page, perPage, searchQuery, fetchUnreadCounts]);
 
   // Initial fetch and refetch when folder/page changes
   useEffect(() => {
@@ -184,8 +198,10 @@ export function useEmails(options: UseEmailsOptions = {}): UseEmailsReturn {
       if (selectedEmail?.id === id) {
         setSelectedEmail(prev => prev ? { ...prev, is_read: true } : null);
       }
+      // Refresh unread counts
+      fetchUnreadCounts();
     }
-  }, [selectedEmail?.id]);
+  }, [selectedEmail?.id, fetchUnreadCounts]);
 
   const markAsUnread = useCallback(async (id: string) => {
     const success = await emailService.updateEmail(id, { is_read: false });
@@ -196,8 +212,10 @@ export function useEmails(options: UseEmailsOptions = {}): UseEmailsReturn {
       if (selectedEmail?.id === id) {
         setSelectedEmail(prev => prev ? { ...prev, is_read: false } : null);
       }
+      // Refresh unread counts
+      fetchUnreadCounts();
     }
-  }, [selectedEmail?.id]);
+  }, [selectedEmail?.id, fetchUnreadCounts]);
 
   const toggleStar = useCallback(async (id: string) => {
     const email = emails.find(e => e.id === id);

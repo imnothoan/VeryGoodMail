@@ -4,7 +4,7 @@ import * as React from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
-import { Loader2, Paperclip, Send } from "lucide-react"
+import { Loader2, Paperclip, Send, X, FileIcon, AlertCircle } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -27,8 +27,8 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Separator } from "@/components/ui/separator"
 import { useI18n } from "@/contexts/i18n-context"
-import { emailService } from "@/services/email-service"
-import { useToast } from "@/hooks/use-toast"
+import { emailService, MAX_FILE_SIZE_MB, UploadedFile } from "@/services/email-service"
+import { Attachment } from "@/types"
 
 interface ComposeDialogProps {
     children: React.ReactNode
@@ -38,6 +38,10 @@ export function ComposeDialog({ children }: ComposeDialogProps) {
     const { t, language } = useI18n()
     const [open, setOpen] = React.useState(false)
     const [isLoading, setIsLoading] = React.useState(false)
+    const [attachments, setAttachments] = React.useState<UploadedFile[]>([])
+    const [uploadError, setUploadError] = React.useState<string | null>(null)
+    const [emailSentSuccessfully, setEmailSentSuccessfully] = React.useState(false)
+    const fileInputRef = React.useRef<HTMLInputElement>(null)
 
     const formSchema = React.useMemo(() => z.object({
         to: z.string().email({ message: t.auth.invalidEmail }),
@@ -58,25 +62,135 @@ export function ComposeDialog({ children }: ComposeDialogProps) {
         },
     })
 
+    // Cleanup orphaned files when dialog closes without sending
+    const cleanupOrphanedFiles = React.useCallback(async () => {
+        // Only cleanup if email was NOT sent successfully
+        if (emailSentSuccessfully) return
+        
+        // Delete uploaded files that weren't sent
+        const successfulUploads = attachments.filter(a => a.status === 'done' && a.attachment?.storage_path)
+        for (const upload of successfulUploads) {
+            if (upload.attachment?.storage_path) {
+                await emailService.deleteAttachment(upload.attachment.storage_path)
+            }
+        }
+    }, [attachments, emailSentSuccessfully])
+
+    // Reset form and attachments when dialog closes
+    React.useEffect(() => {
+        if (!open) {
+            // Cleanup any uploaded files that weren't sent
+            cleanupOrphanedFiles()
+            form.reset()
+            setAttachments([])
+            setUploadError(null)
+            setEmailSentSuccessfully(false)
+        }
+    }, [open, form, cleanupOrphanedFiles])
+
+    const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const files = event.target.files
+        if (!files || files.length === 0) return
+
+        setUploadError(null)
+        
+        for (const file of Array.from(files)) {
+            // Validate file before upload
+            const validation = emailService.validateFile(file)
+            if (!validation.valid) {
+                setUploadError(validation.error || '')
+                continue
+            }
+
+            // Add to attachments list with pending status
+            const uploadedFile: UploadedFile = {
+                file,
+                progress: 0,
+                status: 'uploading',
+            }
+            
+            setAttachments(prev => [...prev, uploadedFile])
+
+            // Upload file
+            const result = await emailService.uploadAttachment(file, (progress) => {
+                setAttachments(prev => 
+                    prev.map(a => 
+                        a.file === file ? { ...a, progress } : a
+                    )
+                )
+            })
+
+            if (result.success && result.attachment) {
+                setAttachments(prev =>
+                    prev.map(a =>
+                        a.file === file
+                            ? { ...a, status: 'done', attachment: result.attachment }
+                            : a
+                    )
+                )
+            } else {
+                setAttachments(prev =>
+                    prev.map(a =>
+                        a.file === file
+                            ? { ...a, status: 'error', error: result.error }
+                            : a
+                    )
+                )
+                setUploadError(result.error || 'Upload failed')
+            }
+        }
+
+        // Clear the file input
+        if (fileInputRef.current) {
+            fileInputRef.current.value = ''
+        }
+    }
+
+    const handleRemoveAttachment = async (uploadedFile: UploadedFile) => {
+        // If already uploaded, delete from storage
+        if (uploadedFile.attachment?.storage_path) {
+            await emailService.deleteAttachment(uploadedFile.attachment.storage_path)
+        }
+        
+        setAttachments(prev => prev.filter(a => a !== uploadedFile))
+    }
+
     async function onSubmit(values: z.infer<typeof formSchema>) {
+        // Check if any files are still uploading
+        if (attachments.some(a => a.status === 'uploading')) {
+            setUploadError(language === 'vi' 
+                ? 'Vui lòng đợi tải lên hoàn tất' 
+                : 'Please wait for uploads to complete')
+            return
+        }
+
         setIsLoading(true)
         
         try {
-            const result = await emailService.sendEmail({
+            // Get successfully uploaded attachments
+            const validAttachments: Attachment[] = attachments
+                .filter(a => a.status === 'done' && a.attachment)
+                .map(a => a.attachment!)
+
+            const result = await emailService.sendEmailWithAttachments({
                 to: [values.to],
                 subject: values.subject,
                 body_text: values.body,
+                attachments: validAttachments,
             })
 
             if (result.success) {
+                // Mark email as sent so we don't cleanup the attachments
+                setEmailSentSuccessfully(true)
                 setOpen(false)
                 form.reset()
+                setAttachments([])
             } else {
-                // Show error
-                console.error('Failed to send email:', result.error)
+                setUploadError(result.error || (language === 'vi' ? 'Gửi thư thất bại' : 'Failed to send email'))
             }
         } catch (error) {
             console.error('Error sending email:', error)
+            setUploadError(language === 'vi' ? 'Đã xảy ra lỗi' : 'An error occurred')
         } finally {
             setIsLoading(false)
         }
@@ -84,23 +198,43 @@ export function ComposeDialog({ children }: ComposeDialogProps) {
 
     const handleSaveDraft = async () => {
         const values = form.getValues()
+        
+        // Check if any files are still uploading
+        if (attachments.some(a => a.status === 'uploading')) {
+            setUploadError(language === 'vi' 
+                ? 'Vui lòng đợi tải lên hoàn tất' 
+                : 'Please wait for uploads to complete')
+            return
+        }
+
         setIsLoading(true)
         
         try {
-            await emailService.sendEmail({
+            const validAttachments: Attachment[] = attachments
+                .filter(a => a.status === 'done' && a.attachment)
+                .map(a => a.attachment!)
+
+            await emailService.sendEmailWithAttachments({
                 to: values.to ? [values.to] : [],
                 subject: values.subject || '',
                 body_text: values.body || '',
                 is_draft: true,
+                attachments: validAttachments,
             })
+            // Mark as sent to prevent cleanup (drafts also use the attachments)
+            setEmailSentSuccessfully(true)
             setOpen(false)
             form.reset()
+            setAttachments([])
         } catch (error) {
             console.error('Error saving draft:', error)
         } finally {
             setIsLoading(false)
         }
     }
+
+    // Calculate total size of attachments
+    const totalSize = attachments.reduce((sum, a) => sum + a.file.size, 0)
 
     return (
         <Dialog open={open} onOpenChange={setOpen}>
@@ -165,7 +299,7 @@ export function ComposeDialog({ children }: ComposeDialogProps) {
                                     <FormControl>
                                         <Textarea
                                             placeholder={t.mail.typeMessage}
-                                            className="min-h-[300px] resize-none border-0 shadow-none focus-visible:ring-0"
+                                            className="min-h-[200px] resize-none border-0 shadow-none focus-visible:ring-0"
                                             disabled={isLoading}
                                             {...field}
                                         />
@@ -174,9 +308,78 @@ export function ComposeDialog({ children }: ComposeDialogProps) {
                                 </FormItem>
                             )}
                         />
+
+                        {/* Attachments section */}
+                        {attachments.length > 0 && (
+                            <div className="space-y-2">
+                                <div className="flex items-center justify-between text-sm text-muted-foreground">
+                                    <span>{t.mail.attachments} ({attachments.length})</span>
+                                    <span>{emailService.formatFileSize(totalSize)}</span>
+                                </div>
+                                <div className="space-y-2 max-h-32 overflow-y-auto">
+                                    {attachments.map((attachment, index) => (
+                                        <div 
+                                            key={index}
+                                            className="flex items-center gap-2 p-2 rounded-md bg-muted/50"
+                                        >
+                                            <FileIcon className="h-4 w-4 text-muted-foreground" />
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-sm truncate">{attachment.file.name}</p>
+                                                <p className="text-xs text-muted-foreground">
+                                                    {emailService.formatFileSize(attachment.file.size)}
+                                                    {attachment.status === 'uploading' && ` - ${attachment.progress}%`}
+                                                    {attachment.status === 'error' && (
+                                                        <span className="text-destructive ml-2">
+                                                            {language === 'vi' ? 'Lỗi' : 'Error'}
+                                                        </span>
+                                                    )}
+                                                </p>
+                                            </div>
+                                            {attachment.status === 'uploading' ? (
+                                                <Loader2 className="h-4 w-4 animate-spin" />
+                                            ) : (
+                                                <Button
+                                                    type="button"
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="h-6 w-6"
+                                                    onClick={() => handleRemoveAttachment(attachment)}
+                                                >
+                                                    <X className="h-4 w-4" />
+                                                </Button>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Error message */}
+                        {uploadError && (
+                            <div className="flex items-center gap-2 text-sm text-destructive">
+                                <AlertCircle className="h-4 w-4" />
+                                <span>{uploadError}</span>
+                            </div>
+                        )}
+
                         <DialogFooter className="flex items-center justify-between sm:justify-between">
                             <div className="flex items-center gap-2">
-                                <Button type="button" variant="ghost" size="icon" disabled={isLoading}>
+                                <input
+                                    ref={fileInputRef}
+                                    type="file"
+                                    multiple
+                                    className="hidden"
+                                    onChange={handleFileSelect}
+                                    disabled={isLoading}
+                                />
+                                <Button 
+                                    type="button" 
+                                    variant="ghost" 
+                                    size="icon" 
+                                    disabled={isLoading}
+                                    onClick={() => fileInputRef.current?.click()}
+                                    title={`${t.mail.attachments} (${language === 'vi' ? 'Tối đa' : 'Max'} ${MAX_FILE_SIZE_MB}MB)`}
+                                >
                                     <Paperclip className="h-4 w-4" />
                                 </Button>
                                 <Button 

@@ -1,6 +1,8 @@
 /**
  * Gemini AI Service for Email Summarization
  * Uses Google's Gemini 2.0 Flash API for email content summarization
+ * 
+ * © 2025 VeryGoodMail by Hoàn
  */
 
 class GeminiService {
@@ -9,6 +11,14 @@ class GeminiService {
     this.baseUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
     this.maxRetries = 3;
     this.retryDelay = 1000;
+    this.timeout = 30000; // 30 seconds timeout
+    
+    // Log configuration status
+    if (this.apiKey) {
+      console.log('✓ Gemini AI configured');
+    } else {
+      console.warn('⚠ Gemini API key not configured. AI features will return fallback responses.');
+    }
   }
 
   /**
@@ -25,6 +35,10 @@ class GeminiService {
     
     for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
       try {
+        // Create AbortController for timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+
         const response = await fetch(this.baseUrl, {
           method: 'POST',
           headers: {
@@ -36,9 +50,28 @@ class GeminiService {
               parts: [{
                 text: prompt
               }]
-            }]
-          })
+            }],
+            generationConfig: {
+              temperature: 0.7,
+              topK: 40,
+              topP: 0.95,
+              maxOutputTokens: 1024,
+            },
+            safetySettings: [
+              {
+                category: 'HARM_CATEGORY_HARASSMENT',
+                threshold: 'BLOCK_MEDIUM_AND_ABOVE'
+              },
+              {
+                category: 'HARM_CATEGORY_HATE_SPEECH',
+                threshold: 'BLOCK_MEDIUM_AND_ABOVE'
+              }
+            ]
+          }),
+          signal: controller.signal
         });
+
+        clearTimeout(timeoutId);
 
         if (!response.ok) {
           const errorData = await response.text();
@@ -51,9 +84,20 @@ class GeminiService {
           return data.candidates[0].content.parts[0].text;
         }
         
+        // Check for blocked content
+        if (data.promptFeedback?.blockReason) {
+          throw new Error(`Content blocked: ${data.promptFeedback.blockReason}`);
+        }
+        
         throw new Error('Invalid response structure from Gemini API');
       } catch (error) {
         lastError = error;
+        
+        // Don't retry on abort/timeout
+        if (error.name === 'AbortError') {
+          throw new Error('Request timeout - Gemini API took too long to respond');
+        }
+        
         console.error(`Gemini API attempt ${attempt} failed:`, error.message);
         
         if (attempt < this.maxRetries) {

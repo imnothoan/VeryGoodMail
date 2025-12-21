@@ -3,7 +3,7 @@
 import * as React from "react"
 import { useRouter } from "next/navigation"
 import { Mail } from "@/components/mail"
-import { Email } from "@/types"
+import { useEmails } from "@/hooks/use-emails"
 import { useSocket } from "@/hooks/use-socket"
 import { useAuth } from "@/contexts/auth-context"
 import { useI18n } from "@/contexts/i18n-context"
@@ -11,7 +11,7 @@ import { Footer } from "@/components/footer"
 import { LanguageSwitcher } from "@/components/language-switcher"
 import { ModeToggle } from "@/components/mode-toggle"
 import { Button } from "@/components/ui/button"
-import { LogOut, User } from "lucide-react"
+import { LogOut, User, Wifi, WifiOff, RefreshCw } from "lucide-react"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,95 +21,65 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import { Folder } from "@/services/email-service"
 
 export default function Page() {
   const router = useRouter()
-  const { user, loading, signOut } = useAuth()
-  const { t } = useI18n()
+  const { user, loading: authLoading, signOut } = useAuth()
+  const { t, language } = useI18n()
+  const { isConnected, connectionError, reconnect } = useSocket()
   const layout = [20, 32, 48]
   const collapsed = false
-  const { socket, isConnected } = useSocket()
 
-  const [mails, setMails] = React.useState<Email[]>([
-    {
-      id: "1",
-      thread_id: "t1",
-      user_id: "u1",
-      sender_name: "William Smith",
-      sender_email: "williamsmith@example.com",
-      recipient_emails: ["me@example.com"],
-      subject: "Meeting Tomorrow",
-      snippet: "Hi, let's meet tomorrow to discuss the project. I've attached the agenda for your review.",
-      body_text: "Hi,\n\nLet's meet tomorrow to discuss the project. I've attached the agenda for your review.\n\nBest,\nWilliam",
-      date: new Date().toISOString(),
-      is_read: false,
-      is_starred: true,
-      is_draft: false,
-      labels: [{ id: "l1", name: "work", type: "user", color: "#000" }],
-    },
-    {
-      id: "2",
-      thread_id: "t2",
-      user_id: "u1",
-      sender_name: "Alice Smith",
-      sender_email: "alicesmith@example.com",
-      recipient_emails: ["me@example.com"],
-      subject: "Re: Project Update",
-      snippet: "Thank you for the project update. It looks great! I have a few questions about the timeline.",
-      body_text: "Thank you for the project update. It looks great!\n\nI have a few questions about the timeline. Can we hop on a quick call?\n\nThanks,\nAlice",
-      date: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(),
-      is_read: true,
-      is_starred: false,
-      is_draft: false,
-      labels: [{ id: "l2", name: "personal", type: "user", color: "#000" }],
-    },
-    {
-      id: "3",
-      thread_id: "t3",
-      user_id: "u1",
-      sender_name: "Bob Johnson",
-      sender_email: "bobjohnson@example.com",
-      recipient_emails: ["me@example.com"],
-      subject: "Weekend Plans",
-      snippet: "Hey, are you free this weekend? We are planning a hiking trip.",
-      body_text: "Hey,\n\nAre you free this weekend? We are planning a hiking trip to the mountains.\n\nLet me know if you want to join!\n\nBob",
-      date: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(),
-      is_read: true,
-      is_starred: false,
-      is_draft: false,
-      labels: [],
-    }
-  ])
-
-  React.useEffect(() => {
-    if (!socket) return
-
-    socket.on("new-email", (newEmail: Email) => {
-      setMails((prev) => [newEmail, ...prev])
-    })
-
-    return () => {
-      socket.off("new-email")
-    }
-  }, [socket])
+  // Email management hook
+  const {
+    emails,
+    selectedEmail,
+    loading: emailsLoading,
+    error: emailsError,
+    folder,
+    unreadCounts,
+    setFolder,
+    selectEmail,
+    selectEmailById,
+    refreshEmails,
+    markAsRead,
+    markAsUnread,
+    toggleStar,
+    moveToTrash,
+    moveToSpam,
+  } = useEmails({ initialFolder: 'inbox' })
 
   // Redirect to login if not authenticated
   React.useEffect(() => {
-    if (!loading && !user) {
+    if (!authLoading && !user) {
       router.push('/login')
     }
-  }, [user, loading, router])
+  }, [user, authLoading, router])
 
   const handleSignOut = async () => {
     await signOut()
     router.push('/login')
   }
 
+  const handleFolderChange = (newFolder: Folder) => {
+    setFolder(newFolder)
+  }
+
   // Show loading state
-  if (loading) {
+  if (authLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        <div className="flex flex-col items-center gap-4">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+          <p className="text-muted-foreground">{t.common.loading}</p>
+        </div>
       </div>
     )
   }
@@ -123,13 +93,64 @@ export default function Page() {
     <div className="flex flex-col h-screen">
       {/* Header */}
       <header className="flex items-center justify-between border-b px-4 py-2">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <h1 className="text-xl font-bold">VeryGoodMail</h1>
-          <span className="hidden text-sm text-muted-foreground">
-            {isConnected ? "Connected" : "Disconnected"}
-          </span>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="flex items-center gap-1">
+                  {isConnected ? (
+                    <Wifi className="h-4 w-4 text-green-500" />
+                  ) : (
+                    <WifiOff className="h-4 w-4 text-red-500" />
+                  )}
+                </div>
+              </TooltipTrigger>
+              <TooltipContent>
+                {isConnected 
+                  ? (language === 'vi' ? 'Đã kết nối' : 'Connected')
+                  : (language === 'vi' ? 'Mất kết nối' : 'Disconnected')
+                }
+                {connectionError && ` - ${connectionError}`}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+          
+          {/* Reconnect button when disconnected */}
+          {!isConnected && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="icon" onClick={reconnect}>
+                    <RefreshCw className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {language === 'vi' ? 'Kết nối lại' : 'Reconnect'}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
         </div>
         <div className="flex items-center gap-2">
+          {/* Refresh button */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  onClick={refreshEmails}
+                  disabled={emailsLoading}
+                >
+                  <RefreshCw className={`h-4 w-4 ${emailsLoading ? 'animate-spin' : ''}`} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {language === 'vi' ? 'Làm mới' : 'Refresh'}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
           <LanguageSwitcher />
           <ModeToggle />
           <DropdownMenu>
@@ -169,10 +190,31 @@ export default function Page() {
         </div>
       </header>
 
+      {/* Error banner */}
+      {emailsError && (
+        <div className="bg-destructive/10 text-destructive px-4 py-2 text-sm text-center">
+          {emailsError}
+          <Button variant="link" onClick={refreshEmails} className="ml-2">
+            {t.common.retry}
+          </Button>
+        </div>
+      )}
+
       {/* Main Content */}
       <main className="flex-1 overflow-hidden">
         <Mail
-          mails={mails}
+          mails={emails}
+          selectedMail={selectedEmail}
+          folder={folder}
+          unreadCounts={unreadCounts}
+          loading={emailsLoading}
+          onFolderChange={handleFolderChange}
+          onSelectMail={selectEmail}
+          onMarkAsRead={markAsRead}
+          onMarkAsUnread={markAsUnread}
+          onToggleStar={toggleStar}
+          onMoveToTrash={moveToTrash}
+          onMoveToSpam={moveToSpam}
           defaultLayout={layout}
           defaultCollapsed={collapsed}
           navCollapsedSize={4}

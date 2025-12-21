@@ -347,13 +347,16 @@ router.post('/', async (req, res) => {
       });
 
     // Create email
+    // Get sender's display name
+    const senderName = user.user_metadata?.full_name || user.email.split('@')[0];
+    
     // Note: ai_classification_source is tracked in memory but not persisted to DB
     // as the column doesn't exist in the schema - this is by design for simplicity
     const emailData = {
       id: emailId,
       thread_id: threadId,
       user_id: user.id,
-      sender_name: user.user_metadata?.full_name || user.email,
+      sender_name: senderName,
       sender_email: user.email,
       recipient_emails: to || [],
       cc_emails: cc || [],
@@ -364,9 +367,14 @@ router.post('/', async (req, res) => {
       body_html: encryptedHtml,
       is_draft,
       is_sent: !is_draft,
-      is_spam: isSpam,
-      ai_category: aiCategory,
-      ai_spam_score: aiSpamScore,
+      // IMPORTANT: Sent emails should be marked as read by default
+      // Only drafts should be unread (since they're not "sent" yet)
+      is_read: !is_draft, // Sent emails are auto-read, drafts are not
+      // IMPORTANT: User's own sent emails should NEVER be marked as spam
+      // The spam classification is for received emails, not sent ones
+      is_spam: false, // Sent emails are never spam
+      ai_category: 'primary', // Sent emails don't need AI categorization
+      ai_spam_score: 0,
       ai_sentiment: aiSentiment,
       date: new Date().toISOString()
     };
@@ -450,11 +458,13 @@ router.post('/', async (req, res) => {
           
           // Create email copy for recipient
           // Note: ai_classification_source tracked in memory only
+          // IMPORTANT: Emails from internal users should never be marked as spam
+          // They've been authenticated, so they're trusted senders
           const recipientEmailData = {
             id: recipientEmailId,
             thread_id: recipientThreadId,
             user_id: recipient.userId,
-            sender_name: user.user_metadata?.full_name || user.email,
+            sender_name: senderName,
             sender_email: user.email,
             recipient_emails: to || [],
             cc_emails: cc || [],
@@ -465,9 +475,9 @@ router.post('/', async (req, res) => {
             body_html: encryptedHtml,
             is_draft: false,
             is_sent: false, // This is received, not sent
-            is_spam: isSpam,
-            ai_category: aiCategory,
-            ai_spam_score: aiSpamScore,
+            is_spam: false, // Internal emails from authenticated users are NEVER spam
+            ai_category: 'primary', // Internal emails go to primary inbox by default
+            ai_spam_score: 0,
             ai_sentiment: aiSentiment,
             is_read: false,
             date: new Date().toISOString()
@@ -520,6 +530,7 @@ router.post('/', async (req, res) => {
 
         smtpResult = await smtpService.sendEmail({
           from: user.email,
+          fromName: senderName, // Pass the sender's display name
           to: externalRecipients,
           cc,
           bcc,
@@ -535,17 +546,18 @@ router.post('/', async (req, res) => {
       }
     }
 
-    // Notify recipients via Socket.IO (if they're connected)
-    if (!is_draft && to) {
-      to.forEach(recipientEmail => {
-        io.to(`user:${recipientEmail}`).emit('new-email', {
+    // Notify internal recipients via Socket.IO (if they're connected)
+    // We already have the userId from internalDeliveries, so use that
+    if (!is_draft && internalDeliveries.length > 0) {
+      for (const recipient of internalDeliveries) {
+        io.to(`user:${recipient.userId}`).emit('new-email', {
           ...email,
           body_text,
           body_html,
           snippet,
           attachments
         });
-      });
+      }
     }
 
     res.status(201).json({

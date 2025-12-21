@@ -110,6 +110,24 @@ export const en: Translations = {
     systemMode: 'System',
     notifications: 'Notifications',
     privacy: 'Privacy',
+    // Account settings
+    profileSettings: 'Profile Settings',
+    displayName: 'Display Name',
+    displayNameHelp: 'This name will be shown when you send emails to others',
+    avatar: 'Avatar',
+    avatarHelp: 'Your avatar will be displayed in outgoing emails',
+    uploadAvatar: 'Upload Avatar',
+    removeAvatar: 'Remove Avatar',
+    changesSaved: 'Changes saved',
+    savingChanges: 'Saving...',
+  },
+  
+  // AI Categories (for tooltips)
+  aiCategories: {
+    importantDesc: 'Important emails from frequent contacts or with content that needs attention',
+    socialDesc: 'Notifications from social networks like Facebook, Twitter, LinkedIn...',
+    updatesDesc: 'Confirmations, account notifications, invoices, receipts...',
+    promotionsDesc: 'Offers, sales, advertisements from stores and services',
   },
   
   // Footer

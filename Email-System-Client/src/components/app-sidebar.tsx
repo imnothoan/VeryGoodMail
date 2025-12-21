@@ -95,30 +95,35 @@ export function AppSidebar({
         },
     ]
 
-    const categoryLinks: NavLink[] = [
+    // AI Categories with descriptions
+    const categoryLinks: (NavLink & { description?: string })[] = [
         {
             title: t.mail.important,
             label: unreadCounts.important > 0 ? unreadCounts.important.toString() : undefined,
             icon: AlertCircle,
             folder: 'important',
+            description: t.aiCategories.importantDesc,
         },
         {
             title: t.mail.social,
             label: unreadCounts.social > 0 ? unreadCounts.social.toString() : undefined,
             icon: Users2,
             folder: 'social',
+            description: t.aiCategories.socialDesc,
         },
         {
             title: t.mail.updates,
             label: unreadCounts.updates > 0 ? unreadCounts.updates.toString() : undefined,
             icon: MessagesSquare,
             folder: 'updates',
+            description: t.aiCategories.updatesDesc,
         },
         {
             title: t.mail.promotions,
             label: unreadCounts.promotions > 0 ? unreadCounts.promotions.toString() : undefined,
             icon: ShoppingCart,
             folder: 'promotions',
+            description: t.aiCategories.promotionsDesc,
         },
     ]
 
@@ -230,35 +235,52 @@ export function AppSidebar({
                                             <span className="sr-only">{link.title}</span>
                                         </button>
                                     </TooltipTrigger>
-                                    <TooltipContent side="right" className="flex items-center gap-4">
-                                        {link.title}
-                                        {link.label && (
-                                            <span className="ml-auto text-muted-foreground">
-                                                {link.label}
-                                            </span>
-                                        )}
+                                    <TooltipContent side="right" className="max-w-[250px]">
+                                        <div className="flex flex-col gap-1">
+                                            <div className="flex items-center gap-2">
+                                                <span className="font-medium">{link.title}</span>
+                                                {link.label && (
+                                                    <span className="text-muted-foreground">
+                                                        ({link.label})
+                                                    </span>
+                                                )}
+                                            </div>
+                                            {link.description && (
+                                                <span className="text-xs text-muted-foreground">
+                                                    {link.description}
+                                                </span>
+                                            )}
+                                        </div>
                                     </TooltipContent>
                                 </Tooltip>
                             ) : (
-                                <button
-                                    key={index}
-                                    onClick={() => onFolderChange(link.folder)}
-                                    className={cn(
-                                        "inline-flex items-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50",
-                                        "h-9 px-4 py-2 justify-start",
-                                        currentFolder === link.folder
-                                            ? "bg-secondary text-secondary-foreground shadow-sm hover:bg-secondary/80"
-                                            : "hover:bg-accent hover:text-accent-foreground"
+                                <Tooltip key={index} delayDuration={300}>
+                                    <TooltipTrigger asChild>
+                                        <button
+                                            onClick={() => onFolderChange(link.folder)}
+                                            className={cn(
+                                                "inline-flex items-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50",
+                                                "h-9 px-4 py-2 justify-start",
+                                                currentFolder === link.folder
+                                                    ? "bg-secondary text-secondary-foreground shadow-sm hover:bg-secondary/80"
+                                                    : "hover:bg-accent hover:text-accent-foreground"
+                                            )}
+                                        >
+                                            <link.icon className="mr-2 h-4 w-4" />
+                                            {link.title}
+                                            {link.label && (
+                                                <span className="ml-auto text-muted-foreground">
+                                                    {link.label}
+                                                </span>
+                                            )}
+                                        </button>
+                                    </TooltipTrigger>
+                                    {link.description && (
+                                        <TooltipContent side="right" className="max-w-[250px]">
+                                            <span className="text-xs">{link.description}</span>
+                                        </TooltipContent>
                                     )}
-                                >
-                                    <link.icon className="mr-2 h-4 w-4" />
-                                    {link.title}
-                                    {link.label && (
-                                        <span className="ml-auto text-muted-foreground">
-                                            {link.label}
-                                        </span>
-                                    )}
-                                </button>
+                                </Tooltip>
                             )
                         )}
                     </nav>

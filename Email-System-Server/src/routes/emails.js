@@ -1,10 +1,23 @@
 const express = require('express');
 const router = express.Router();
 const { v4: uuidv4 } = require('uuid');
+const { createClient } = require('@supabase/supabase-js');
 const encryption = require('../utils/encryption');
 const smtpService = require('../services/smtp');
 const phobertService = require('../services/phobert');
 const naiveBayes = require('../services/naiveBayes'); // Fallback classifier
+
+// Create admin Supabase client for cross-user operations
+const supabaseAdmin = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY,
+  {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false
+    }
+  }
+);
 
 /**
  * GET /api/emails/counts/unread
@@ -366,36 +379,137 @@ router.post('/', async (req, res) => {
         .insert(attachmentRecords);
     }
 
-    // Send email via SMTP if not a draft
+    // Handle email delivery (internal users + SMTP for external)
     let smtpResult = null;
+    const internalDeliveries = [];
+    const externalRecipients = [];
+    
     if (!is_draft && to && to.length > 0) {
-      // Get public URLs for attachments
-      const attachmentUrls = [];
-      for (const att of attachments) {
-        if (att.storage_path) {
-          const { data: urlData } = supabase.storage
-            .from('media')
-            .getPublicUrl(att.storage_path);
-          attachmentUrls.push({
-            ...att,
-            url: urlData?.publicUrl
-          });
+      // Separate internal vs external recipients
+      const EMAIL_DOMAIN = 'verygoodmail.tech';
+      
+      for (const recipientEmail of to) {
+        if (recipientEmail.endsWith(`@${EMAIL_DOMAIN}`)) {
+          // Internal recipient - check if user exists using admin client
+          const { data: recipientProfile } = await supabaseAdmin
+            .from('profiles')
+            .select('id')
+            .eq('email', recipientEmail)
+            .single();
+          
+          if (recipientProfile) {
+            internalDeliveries.push({
+              email: recipientEmail,
+              userId: recipientProfile.id
+            });
+          } else {
+            // User doesn't exist, treat as external
+            externalRecipients.push(recipientEmail);
+          }
+        } else {
+          externalRecipients.push(recipientEmail);
         }
       }
 
-      smtpResult = await smtpService.sendEmail({
-        from: user.email,
-        to,
-        cc,
-        bcc,
-        subject: subject || '(No subject)',
-        text: body_text,
-        html: body_html,
-        attachments: attachmentUrls
-      });
+      // Create copies for internal recipients (in their inbox) using admin client
+      for (const recipient of internalDeliveries) {
+        const recipientEmailId = uuidv4();
+        const recipientThreadId = uuidv4();
+        
+        // Create thread for recipient
+        await supabaseAdmin
+          .from('threads')
+          .insert({
+            id: recipientThreadId,
+            user_id: recipient.userId,
+            subject: subject || '(No subject)',
+            snippet: encryptedSnippet,
+            last_message_at: new Date().toISOString()
+          });
+        
+        // Create email copy for recipient
+        const recipientEmailData = {
+          id: recipientEmailId,
+          thread_id: recipientThreadId,
+          user_id: recipient.userId,
+          sender_name: user.user_metadata?.full_name || user.email,
+          sender_email: user.email,
+          recipient_emails: to || [],
+          cc_emails: cc || [],
+          bcc_emails: bcc || [],
+          subject: subject || '(No subject)',
+          snippet: encryptedSnippet,
+          body_text: encryptedBody,
+          body_html: encryptedHtml,
+          is_draft: false,
+          is_sent: false, // This is received, not sent
+          is_spam: isSpam,
+          ai_category: aiCategory,
+          ai_spam_score: aiSpamScore,
+          ai_sentiment: aiSentiment,
+          ai_classification_source: classificationSource,
+          is_read: false,
+          date: new Date().toISOString()
+        };
 
-      if (!smtpResult.success && !smtpResult.local) {
-        console.warn('SMTP send failed, email stored locally:', smtpResult.error);
+        const { error: recipientError } = await supabaseAdmin
+          .from('emails')
+          .insert(recipientEmailData);
+
+        if (recipientError) {
+          console.error('Failed to deliver to internal recipient:', recipient.email, recipientError);
+        } else {
+          console.log('Email delivered to internal recipient:', recipient.email);
+          
+          // Copy attachments for recipient
+          if (attachments.length > 0) {
+            const recipientAttachments = attachments.map(att => ({
+              id: uuidv4(),
+              email_id: recipientEmailId,
+              user_id: recipient.userId,
+              filename: att.filename,
+              content_type: att.content_type,
+              size_bytes: att.size_bytes,
+              storage_path: att.storage_path,
+            }));
+
+            await supabaseAdmin
+              .from('attachments')
+              .insert(recipientAttachments);
+          }
+        }
+      }
+
+      // Send via SMTP for external recipients
+      if (externalRecipients.length > 0) {
+        // Get public URLs for attachments
+        const attachmentUrls = [];
+        for (const att of attachments) {
+          if (att.storage_path) {
+            const { data: urlData } = supabase.storage
+              .from('media')
+              .getPublicUrl(att.storage_path);
+            attachmentUrls.push({
+              ...att,
+              url: urlData?.publicUrl
+            });
+          }
+        }
+
+        smtpResult = await smtpService.sendEmail({
+          from: user.email,
+          to: externalRecipients,
+          cc,
+          bcc,
+          subject: subject || '(No subject)',
+          text: body_text,
+          html: body_html,
+          attachments: attachmentUrls
+        });
+
+        if (!smtpResult.success && !smtpResult.local) {
+          console.warn('SMTP send failed for external recipients:', smtpResult.error);
+        }
       }
     }
 
@@ -421,7 +535,11 @@ router.post('/', async (req, res) => {
         snippet,
         attachments
       },
-      smtp: smtpResult
+      delivery: {
+        internal: internalDeliveries.map(d => d.email),
+        external: externalRecipients,
+        smtp: smtpResult
+      }
     });
   } catch (error) {
     console.error('Error creating email:', error);

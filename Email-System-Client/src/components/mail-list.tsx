@@ -199,50 +199,60 @@ export function MailList({ items, selectedId, loading = false, folder = 'inbox',
             <Separator />
             <ScrollArea className="flex-1">
                 <div className="flex flex-col gap-2 p-4 pt-2">
-                    {items.map((item) => (
-                        <button
-                            key={item.id}
-                            className={cn(
-                                "flex flex-col items-start gap-2 rounded-lg border p-3 text-left text-sm transition-all hover:bg-accent",
-                                selectedId === item.id && "bg-muted"
-                            )}
-                            onClick={() => onSelect?.(item.id)}
-                        >
-                            <div className="flex w-full flex-col gap-1">
-                                <div className="flex items-center">
-                                    <div className="flex items-center gap-2">
-                                        <div className={cn(
-                                            "font-semibold",
-                                            !item.is_read && "font-bold"
-                                        )}>
-                                            {item.sender_name}
+                    {items.map((item) => {
+                        // For sent/drafts folder, show recipient instead of sender
+                        const isSentOrDraft = folder === 'sent' || folder === 'drafts';
+                        const displayName = isSentOrDraft 
+                            ? (item.recipient_emails?.[0] || (language === 'vi' ? '(Không có người nhận)' : '(No recipient)'))
+                            : item.sender_name;
+                        const displayPrefix = isSentOrDraft 
+                            ? (language === 'vi' ? 'Đến: ' : 'To: ')
+                            : '';
+                            
+                        return (
+                            <button
+                                key={item.id}
+                                className={cn(
+                                    "flex flex-col items-start gap-2 rounded-lg border p-3 text-left text-sm transition-all hover:bg-accent",
+                                    selectedId === item.id && "bg-muted"
+                                )}
+                                onClick={() => onSelect?.(item.id)}
+                            >
+                                <div className="flex w-full flex-col gap-1">
+                                    <div className="flex items-center">
+                                        <div className="flex items-center gap-2">
+                                            <div className={cn(
+                                                "font-semibold truncate max-w-[200px]",
+                                                !item.is_read && "font-bold"
+                                            )}>
+                                                {displayPrefix}{displayName}
+                                            </div>
+                                            {!item.is_read && (
+                                                <span className="flex h-2 w-2 rounded-full bg-blue-600" />
+                                            )}
+                                            {item.is_starred && (
+                                                <span className="text-yellow-500">★</span>
+                                            )}
+                                            {(item.has_attachments || (item.attachments && item.attachments.length > 0)) && (
+                                                <Paperclip className="h-3 w-3 text-muted-foreground" />
+                                            )}
                                         </div>
-                                        {!item.is_read && (
-                                            <span className="flex h-2 w-2 rounded-full bg-blue-600" />
-                                        )}
-                                        {item.is_starred && (
-                                            <span className="text-yellow-500">★</span>
-                                        )}
-                                        {(item.has_attachments || (item.attachments && item.attachments.length > 0)) && (
-                                            <Paperclip className="h-3 w-3 text-muted-foreground" />
-                                        )}
+                                        <div
+                                            className={cn(
+                                                "ml-auto text-xs flex-shrink-0",
+                                                selectedId === item.id
+                                                    ? "text-foreground"
+                                                    : "text-muted-foreground"
+                                            )}
+                                        >
+                                            {formatDistanceToNow(new Date(item.date), {
+                                                addSuffix: true,
+                                                locale: language === 'vi' ? vi : enUS,
+                                            })}
+                                        </div>
                                     </div>
-                                    <div
-                                        className={cn(
-                                            "ml-auto text-xs",
-                                            selectedId === item.id
-                                                ? "text-foreground"
-                                                : "text-muted-foreground"
-                                        )}
-                                    >
-                                        {formatDistanceToNow(new Date(item.date), {
-                                            addSuffix: true,
-                                            locale: language === 'vi' ? vi : enUS,
-                                        })}
-                                    </div>
-                                </div>
-                                <div className={cn(
-                                    "text-xs",
+                                    <div className={cn(
+                                        "text-xs",
                                     !item.is_read ? "font-semibold" : "font-medium"
                                 )}>
                                     {item.subject}
@@ -264,7 +274,8 @@ export function MailList({ items, selectedId, loading = false, folder = 'inbox',
                                 ))}
                             </div>
                         </button>
-                    ))}
+                        );
+                    })}
                 </div>
             </ScrollArea>
         </div>

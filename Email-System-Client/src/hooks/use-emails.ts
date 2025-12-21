@@ -5,6 +5,7 @@ import { Email } from '@/types';
 import { emailService, Folder, EmailFilters } from '@/services/email-service';
 import { useAuth } from '@/contexts/auth-context';
 import { useSocket } from './use-socket';
+import { toast } from './use-toast';
 
 interface UseEmailsOptions {
   initialFolder?: Folder;
@@ -139,6 +140,14 @@ export function useEmails(options: UseEmailsOptions = {}): UseEmailsReturn {
         inbox: prev.inbox + 1,
         [emailCategory]: (prev[emailCategory as keyof typeof prev] || 0) + 1,
       }));
+      
+      // Show toast notification for new email
+      if (isInbox && !newEmail.is_spam) {
+        toast({
+          title: `📧 ${newEmail.sender_name || 'New email'}`,
+          description: newEmail.subject?.substring(0, 50) || 'New message received',
+        });
+      }
       
       // Refresh if not in inbox to ensure counts are accurate
       if (folder !== 'inbox' && folder !== emailCategory) {

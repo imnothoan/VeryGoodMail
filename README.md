@@ -67,6 +67,7 @@ cd VeryGoodMail
 2. Mở SQL Editor
 3. Copy và chạy nội dung file `supabase-schema.sql`
 4. Lấy Project URL và API keys từ Settings > API
+5. Tạo Storage bucket "media" (Public, 50MB limit)
 
 ### 3. Cài đặt Client
 ```bash
@@ -88,10 +89,17 @@ npm run dev
 
 ### 5. (Optional) Cài đặt PhoBERT Service
 ```bash
-cd Email-System-Server/phobert-service
+cd PhoBERT-Service
 pip install -r requirements.txt
-USE_PHOBERT=true python main.py
+uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
+
+## 🌐 Deploy lên Production
+
+Xem hướng dẫn chi tiết trong file [HOSTING.md](HOSTING.md) để deploy với:
+- Tên miền `verygoodmail.tech`
+- Titan Email SMTP
+- Vercel/Railway/VPS hosting
 
 ## ⚙️ Biến môi trường
 

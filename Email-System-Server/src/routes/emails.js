@@ -132,8 +132,10 @@ router.get('/', async (req, res) => {
         query = query.eq('is_starred', true).eq('is_trashed', false);
         break;
       case 'archive':
-        query = query.eq('is_trashed', false).eq('is_spam', false).eq('is_draft', false);
-        // Note: Archive functionality would need additional flag in database
+        // Archive feature placeholder - currently returns empty
+        // To implement: add is_archived boolean column to emails table
+        // and update this query to: query.eq('is_archived', true)
+        query = query.eq('is_trashed', false).eq('is_spam', false).is('id', null);
         break;
       // AI categories - filter by ai_category and exclude sent/draft/spam/trash
       case 'important':
@@ -396,7 +398,8 @@ router.post('/', async (req, res) => {
     
     if (!is_draft && to && to.length > 0) {
       // Separate internal vs external recipients
-      const EMAIL_DOMAIN = 'verygoodmail.tech';
+      // Use environment variable for domain, fallback to default
+      const EMAIL_DOMAIN = process.env.EMAIL_DOMAIN || 'verygoodmail.tech';
       
       for (const recipientEmail of to) {
         if (recipientEmail.endsWith(`@${EMAIL_DOMAIN}`)) {

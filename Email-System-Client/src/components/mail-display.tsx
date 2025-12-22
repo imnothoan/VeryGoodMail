@@ -99,8 +99,8 @@ export function MailDisplay({
                 const result = await emailService.getThreadEmails(mail.thread_id)
                 if (result && result.emails.length > 1) {
                     setThreadEmails(result.emails)
-                    // Auto-show conversation if there are multiple emails
-                    setShowConversation(true)
+                    // Don't auto-show conversation - let user click the button
+                    // This prevents disrupting the user's workflow
                 } else {
                     setThreadEmails([])
                     setShowConversation(false)

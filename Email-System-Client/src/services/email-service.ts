@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import { Email, Attachment } from '@/types';
+import { Email, Attachment, Thread } from '@/types';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
@@ -49,6 +49,28 @@ export interface EmailFilters {
 
 export interface EmailsResponse {
   emails: Email[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+  };
+}
+
+export interface Conversation {
+  id: string;
+  subject: string;
+  normalized_subject: string;
+  message_count: number;
+  unread_count: number;
+  has_starred: boolean;
+  participants: string[];
+  latest_email: Email;
+  snippet: string | null;
+  date: string;
+}
+
+export interface ConversationsResponse {
+  conversations: Conversation[];
   pagination: {
     page: number;
     limit: number;
@@ -159,6 +181,55 @@ class EmailService {
     } catch (error) {
       console.error('Error fetching email:', error);
       return null;
+    }
+  }
+
+  /**
+   * Get all emails in a conversation thread
+   */
+  async getThreadEmails(threadId: string): Promise<{ thread: Thread; emails: Email[] } | null> {
+    try {
+      const response = await this.fetchWithAuth(`${API_URL}/api/emails/thread/${threadId}`);
+      
+      if (!response.ok) {
+        if (response.status === 404) {
+          return null;
+        }
+        throw new Error(`Failed to fetch thread: ${response.status}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Error fetching thread:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Get emails grouped by conversation
+   */
+  async getConversations(filters: EmailFilters = {}): Promise<ConversationsResponse> {
+    const params = new URLSearchParams();
+    
+    if (filters.folder) params.append('folder', filters.folder);
+    if (filters.page) params.append('page', filters.page.toString());
+    if (filters.limit) params.append('limit', filters.limit.toString());
+    if (filters.search) params.append('search', filters.search);
+
+    try {
+      const response = await this.fetchWithAuth(`${API_URL}/api/emails/conversations?${params}`);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch conversations: ${response.status}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Error fetching conversations:', error);
+      return {
+        conversations: [],
+        pagination: { page: 1, limit: 50, total: 0 }
+      };
     }
   }
 

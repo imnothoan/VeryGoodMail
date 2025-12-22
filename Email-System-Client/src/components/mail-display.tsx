@@ -11,6 +11,7 @@ import {
     FileIcon,
     Forward,
     Loader2,
+    MessageSquare,
     MoreVertical,
     Paperclip,
     Reply,
@@ -44,6 +45,8 @@ import { Textarea } from "@/components/ui/textarea"
 import { Email } from "@/types"
 import { useI18n } from "@/contexts/i18n-context"
 import { aiService } from "@/services/ai-service"
+import { emailService } from "@/services/email-service"
+import { ConversationView } from "@/components/conversation-view"
 
 interface MailDisplayProps {
     mail: Email | null
@@ -66,18 +69,52 @@ export function MailDisplay({
     const [replyText, setReplyText] = React.useState("")
     const [isSending, setIsSending] = React.useState(false)
     
+    // Conversation/Thread state
+    const [threadEmails, setThreadEmails] = React.useState<Email[]>([])
+    const [isLoadingThread, setIsLoadingThread] = React.useState(false)
+    const [showConversation, setShowConversation] = React.useState(false)
+    
     // AI Assistant state
     const [aiSummary, setAiSummary] = React.useState<string | null>(null)
     const [smartReplies, setSmartReplies] = React.useState<string[]>([])
     const [isLoadingAI, setIsLoadingAI] = React.useState(false)
     const [showAIPanel, setShowAIPanel] = React.useState(false)
 
-    // Reset AI state when mail changes
+    // Reset state when mail changes
     React.useEffect(() => {
         setAiSummary(null)
         setSmartReplies([])
         setShowAIPanel(false)
+        setThreadEmails([])
+        setShowConversation(false)
     }, [mail?.id])
+
+    // Fetch thread emails when mail changes
+    React.useEffect(() => {
+        const fetchThread = async () => {
+            if (!mail?.thread_id) return
+            
+            setIsLoadingThread(true)
+            try {
+                const result = await emailService.getThreadEmails(mail.thread_id)
+                if (result && result.emails.length > 1) {
+                    setThreadEmails(result.emails)
+                    // Auto-show conversation if there are multiple emails
+                    setShowConversation(true)
+                } else {
+                    setThreadEmails([])
+                    setShowConversation(false)
+                }
+            } catch (error) {
+                console.error('Error fetching thread:', error)
+                setThreadEmails([])
+            } finally {
+                setIsLoadingThread(false)
+            }
+        }
+        
+        fetchThread()
+    }, [mail?.thread_id])
 
     const handleSummarize = async () => {
         if (!mail) return
@@ -129,9 +166,6 @@ export function MailDisplay({
         setIsSending(true)
         
         try {
-            // Import emailService dynamically to avoid circular dependencies
-            const { emailService } = await import("@/services/email-service")
-            
             // Validate sender_email exists
             if (!mail.sender_email || !mail.sender_email.includes('@')) {
                 console.error('Invalid sender email address')
@@ -158,6 +192,21 @@ export function MailDisplay({
             console.error('Error sending reply:', error)
         } finally {
             setIsSending(false)
+        }
+    }
+
+    // Handle reply from conversation view
+    const handleConversationReply = async (to: string, subject: string, body: string): Promise<boolean> => {
+        try {
+            const result = await emailService.sendEmail({
+                to: [to],
+                subject,
+                body_text: body,
+            })
+            return result.success
+        } catch (error) {
+            console.error('Error sending reply:', error)
+            return false
         }
     }
 
@@ -230,6 +279,35 @@ export function MailDisplay({
                     </TooltipProvider>
                 </div>
                 <div className="ml-auto flex items-center gap-2">
+                    {/* Conversation View Toggle */}
+                    {threadEmails.length > 1 && (
+                        <TooltipProvider>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Button 
+                                        variant={showConversation ? "secondary" : "ghost"} 
+                                        size="icon" 
+                                        disabled={!mail || isLoadingThread}
+                                        onClick={() => setShowConversation(!showConversation)}
+                                    >
+                                        {isLoadingThread ? (
+                                            <Loader2 className="h-4 w-4 animate-spin" />
+                                        ) : (
+                                            <MessageSquare className="h-4 w-4" />
+                                        )}
+                                        <span className="sr-only">
+                                            {language === 'vi' ? 'Xem cuộc hội thoại' : 'View Conversation'}
+                                        </span>
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                    {language === 'vi' 
+                                        ? `Cuộc hội thoại (${threadEmails.length} tin nhắn)` 
+                                        : `Conversation (${threadEmails.length} messages)`}
+                                </TooltipContent>
+                            </Tooltip>
+                        </TooltipProvider>
+                    )}
                     {/* AI Assistant button */}
                     <TooltipProvider>
                         <Tooltip>
@@ -304,6 +382,14 @@ export function MailDisplay({
             </div>
             <Separator />
             {mail ? (
+                /* Show Conversation View if enabled and has multiple emails */
+                showConversation && threadEmails.length > 1 ? (
+                    <ConversationView
+                        emails={threadEmails}
+                        subject={mail.subject}
+                        onSendReply={handleConversationReply}
+                    />
+                ) : (
                 <div className="flex flex-1 flex-col overflow-hidden">
                     {/* AI Panel */}
                     {showAIPanel && (
@@ -491,6 +577,7 @@ export function MailDisplay({
                         </form>
                     </div>
                 </div>
+                )
             ) : (
                 <div className="p-8 text-center text-muted-foreground">
                     {t.mail.noMessageSelected}

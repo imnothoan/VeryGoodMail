@@ -12,7 +12,25 @@ const isValidConfig = supabaseUrl &&
 let supabase: SupabaseClient;
 
 if (isValidConfig) {
-  supabase = createClient(supabaseUrl, supabaseKey);
+  supabase = createClient(supabaseUrl, supabaseKey, {
+    auth: {
+      // Automatically refresh the token before it expires
+      autoRefreshToken: true,
+      // Persist session across browser tabs
+      persistSession: true,
+      // Use localStorage for session storage (more reliable than cookies for SPA)
+      storage: typeof window !== 'undefined' ? window.localStorage : undefined,
+      // Detect session from URL (for OAuth callbacks)
+      detectSessionInUrl: true,
+      // Flow type for PKCE (more secure)
+      flowType: 'pkce',
+    },
+    global: {
+      headers: {
+        'x-client-info': 'verygoodmail-client',
+      },
+    },
+  });
 } else {
   // During build time or when credentials are missing, create a placeholder
   // This will be replaced with real credentials at runtime

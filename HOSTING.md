@@ -58,8 +58,9 @@ Value: v=spf1 include:spf.titan.email ~all
 TTL: 3600
 
 # DKIM Record (lấy từ Titan Admin Panel)
+# ⚠️ Selector có thể là titan, titan1, titan2, hoặc default - kiểm tra trong Titan Admin
 Type: TXT
-Host: titan._domainkey
+Host: titan1._domainkey    (hoặc selector mà Titan hiển thị)
 Value: <DKIM key từ Titan>
 TTL: 3600
 
@@ -546,6 +547,71 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 1. Kiểm tra SMTP credentials
 2. Kiểm tra MX records đã propagate chưa (dùng [mxtoolbox.com](https://mxtoolbox.com))
 3. Kiểm tra SPF record
+
+### ⚠️ Lỗi DKIM - "Error in dkim public key, DKIM public key not found in dns"
+
+**Nguyên nhân**: DNS records cho DKIM chưa được cấu hình đúng hoặc chưa propagate.
+
+**⚠️ QUAN TRỌNG - Selector Name**: 
+- Titan Email sử dụng selector khác nhau tùy theo tài khoản. Phổ biến nhất là `titan1`, `titan2`, hoặc `default`.
+- **Kiểm tra selector đúng** trong Titan Admin Panel → Email Authentication → DKIM Settings
+
+**Cách sửa:**
+
+1. **Đăng nhập Titan Admin Panel** và lấy DKIM key:
+   - Vào Settings → Email Authentication hoặc DNS Settings
+   - Tìm **DKIM Record** - nó sẽ hiển thị dạng: `titan1._domainkey` hoặc `titan._domainkey`
+   - Copy toàn bộ selector name và DKIM public key
+
+2. **Thêm DKIM record vào DNS** (ví dụ với selector `titan1`):
+   ```
+   Type: TXT
+   Host: titan1._domainkey    (hoặc selector mà Titan cung cấp)
+   Value: v=DKIM1; k=rsa; p=<YOUR_DKIM_PUBLIC_KEY>
+   TTL: 3600
+   ```
+
+3. **Kiểm tra DKIM đã propagate**:
+   - Dùng [mxtoolbox.com](https://mxtoolbox.com/dkim.aspx)
+   - Nhập domain: `verygoodmail.tech`
+   - Nhập selector: `titan1` (hoặc selector bạn đang dùng)
+   - Hoặc dùng lệnh: `nslookup -type=txt titan1._domainkey.verygoodmail.tech`
+
+4. **Đợi propagation**: DNS changes có thể mất 15 phút - 48 giờ để propagate hoàn toàn.
+
+5. **Kiểm tra trong Titan Admin Panel**: Sau khi DNS propagate, vào lại Titan Admin → Email Authentication để verify. Nếu vẫn báo lỗi, có thể do:
+   - DNS chưa propagate hoàn toàn (đợi thêm)
+   - Selector name không đúng
+   - Value bị thiếu dấu ngoặc kép hoặc có ký tự thừa
+
+### ⚠️ Lỗi SPF Record không hợp lệ
+
+**Cách sửa:**
+```
+Type: TXT
+Host: @
+Value: v=spf1 include:spf.titan.email ~all
+TTL: 3600
+```
+
+**Lưu ý**: Chỉ nên có MỘT TXT record cho SPF. Nếu có nhiều, cần gộp lại.
+
+### ⚠️ MX Records không được nhận diện
+
+**Cách sửa:**
+```
+Type: MX
+Host: @
+Value: mx1.titan.email
+Priority: 10
+
+Type: MX
+Host: @
+Value: mx2.titan.email  
+Priority: 20
+```
+
+**Kiểm tra**: Dùng [mxtoolbox.com](https://mxtoolbox.com/MXLookup.aspx) → nhập `verygoodmail.tech`
 
 ### Gemini AI không hoạt động
 1. Kiểm tra API key hợp lệ

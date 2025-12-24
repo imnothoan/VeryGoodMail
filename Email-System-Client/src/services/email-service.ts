@@ -88,8 +88,29 @@ export interface UploadedFile {
 
 class EmailService {
   private async getAuthToken(): Promise<string | null> {
-    const { data: { session } } = await supabase.auth.getSession();
-    return session?.access_token || null;
+    try {
+      const { data: { session }, error } = await supabase.auth.getSession();
+      
+      // Handle refresh token errors gracefully
+      if (error) {
+        const message = error.message?.toLowerCase() || '';
+        if (message.includes('refresh token') || 
+            message.includes('invalid token') ||
+            message.includes('session not found')) {
+          console.warn('Session expired, clearing auth state');
+          // Sign out to clear stale tokens
+          await supabase.auth.signOut({ scope: 'local' });
+          return null;
+        }
+        console.error('Error getting session:', error.message);
+        return null;
+      }
+      
+      return session?.access_token || null;
+    } catch (error) {
+      console.error('Unexpected error getting auth token:', error);
+      return null;
+    }
   }
 
   private async fetchWithAuth(url: string, options: RequestInit = {}): Promise<Response> {
@@ -99,7 +120,7 @@ class EmailService {
       throw new Error('Not authenticated');
     }
 
-    return fetch(url, {
+    const response = await fetch(url, {
       ...options,
       headers: {
         ...options.headers,
@@ -107,6 +128,29 @@ class EmailService {
         'Content-Type': 'application/json',
       },
     });
+    
+    // Handle 401 responses - token might have expired during the request
+    if (response.status === 401) {
+      // Try to refresh the session once
+      const { data: { session }, error } = await supabase.auth.refreshSession();
+      if (error || !session) {
+        // Clear auth state if refresh fails
+        await supabase.auth.signOut({ scope: 'local' });
+        throw new Error('Session expired. Please log in again.');
+      }
+      
+      // Retry the request with the new token
+      return fetch(url, {
+        ...options,
+        headers: {
+          ...options.headers,
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+    }
+    
+    return response;
   }
 
   async getEmails(filters: EmailFilters = {}): Promise<EmailsResponse> {

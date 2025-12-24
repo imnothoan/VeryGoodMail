@@ -46,7 +46,8 @@ const getFolderDisplayName = (folder: Folder, language: string): string => {
 
 export function MailList({ items, selectedId, loading = false, folder = 'inbox', onSelect, onSearch }: MailListProps) {
     const { t, language } = useI18n()
-    const [searchQuery, setSearchQuery] = useState('')
+    // Initialize with empty string to ensure controlled input from the start
+    const [searchQuery, setSearchQuery] = useState<string>('')
     const [isSearchFocused, setIsSearchFocused] = useState(false)
 
     const handleSearchChange = useCallback((value: string) => {

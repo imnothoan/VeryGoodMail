@@ -343,7 +343,7 @@ export default function AccountPage() {
                             </p>
                             <Input
                                 id="displayName"
-                                value={displayName}
+                                value={displayName ?? ''}
                                 onChange={(e) => setDisplayName(e.target.value)}
                                 placeholder={language === 'vi' ? 'Nhập tên của bạn' : 'Enter your name'}
                             />

@@ -482,7 +482,7 @@ class NaiveBayesClassifier {
    * @returns {object} - Complete classification result
    */
   classifyEmail(subject, body) {
-    const combinedText = `${subject || ''} ${body || ''}`.trim();
+    const combinedText = `${subject ?? ''} ${body ?? ''}`.trim();
     
     const categoryResult = this.classify(combinedText);
     const sentimentResult = this.analyzeSentiment(combinedText);

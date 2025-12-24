@@ -980,6 +980,12 @@ router.get('/conversations', async (req, res) => {
     });
 
     // Filter by search query on decrypted subject if provided
+    // NOTE: This client-side filtering approach is used because subjects are encrypted
+    // and cannot be searched directly in the database. For large-scale deployments,
+    // consider implementing:
+    // - Search indexing service (e.g., Elasticsearch) with decrypted content
+    // - Searchable encryption schemes (e.g., searchable symmetric encryption)
+    // - Caching layer for frequently accessed decrypted content
     const filteredEmails = search 
       ? emailsWithDecryptedSubjects.filter(email => 
           email.decrypted_subject.toLowerCase().includes(search.toLowerCase())

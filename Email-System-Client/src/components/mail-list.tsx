@@ -127,7 +127,7 @@ export function MailList({ items, selectedId, loading = false, folder = 'inbox',
                         <Input
                             placeholder={t.common.search + '...'}
                             className="pl-9 pr-9"
-                            value={searchQuery}
+                            value={searchQuery ?? ''}
                             onChange={(e) => handleSearchChange(e.target.value)}
                             onKeyDown={handleKeyDown}
                             onFocus={() => setIsSearchFocused(true)}
@@ -178,7 +178,7 @@ export function MailList({ items, selectedId, loading = false, folder = 'inbox',
                             "pl-9 pr-9 transition-all",
                             isSearchFocused && "ring-2 ring-ring"
                         )}
-                        value={searchQuery}
+                        value={searchQuery ?? ''}
                         onChange={(e) => handleSearchChange(e.target.value)}
                         onKeyDown={handleKeyDown}
                         onFocus={() => setIsSearchFocused(true)}

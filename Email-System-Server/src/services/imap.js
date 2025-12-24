@@ -540,10 +540,11 @@ class IMAPService {
       // Create snippet
       const snippet = bodyText ? bodyText.substring(0, 100) : '';
 
-      // Encrypt sensitive content
+      // Encrypt sensitive content (including subject)
       const encryptedBody = bodyText ? encryption.encrypt(bodyText) : null;
       const encryptedHtml = bodyHtml ? encryption.encrypt(bodyHtml) : null;
       const encryptedSnippet = snippet ? encryption.encrypt(snippet) : null;
+      const encryptedSubject = subject ? encryption.encrypt(subject) : encryption.encrypt('(No subject)');
 
       // AI-powered classification (basic implementation)
       const { isSpam, aiCategory, aiSpamScore } = this.classifyEmail(senderEmail, subject, bodyText);
@@ -557,7 +558,7 @@ class IMAPService {
         .insert({
           id: threadId,
           user_id: user.id,
-          subject: subject,
+          subject: encryptedSubject,
           snippet: encryptedSnippet,
           last_message_at: date.toISOString()
         });
@@ -572,7 +573,7 @@ class IMAPService {
         recipient_emails: toAddresses,
         cc_emails: ccAddresses,
         bcc_emails: [],
-        subject: subject,
+        subject: encryptedSubject,
         snippet: encryptedSnippet,
         body_text: encryptedBody,
         body_html: encryptedHtml,

@@ -10,6 +10,8 @@ import { useI18n } from "@/contexts/i18n-context"
 import { Footer } from "@/components/footer"
 import { LanguageSwitcher } from "@/components/language-switcher"
 import { ModeToggle } from "@/components/mode-toggle"
+import { KeyboardShortcuts } from "@/components/keyboard-shortcuts"
+import { EmailStats } from "@/components/email-stats"
 import { Button } from "@/components/ui/button"
 import { LogOut, User, Wifi, WifiOff, RefreshCw } from "lucide-react"
 import {
@@ -151,6 +153,8 @@ export default function Page() {
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
+          <EmailStats unreadCounts={unreadCounts} />
+          <KeyboardShortcuts />
           <LanguageSwitcher />
           <ModeToggle />
           <DropdownMenu>

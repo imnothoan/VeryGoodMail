@@ -30,6 +30,7 @@ import { Separator } from "@/components/ui/separator"
 import { useI18n } from "@/contexts/i18n-context"
 import { emailService, MAX_FILE_SIZE_MB, UploadedFile } from "@/services/email-service"
 import { Attachment } from "@/types"
+import { EmailTemplates, EmailTemplate } from "@/components/email-templates"
 
 interface ComposeDialogProps {
     children: React.ReactNode
@@ -316,6 +317,15 @@ export function ComposeDialog({ children, initialData, onDraftUpdated: _onDraftU
         }
     }
 
+    // Handle template selection
+    const handleTemplateSelect = React.useCallback((template: EmailTemplate) => {
+        const subject = language === 'vi' ? template.subjectVi : template.subject
+        const body = language === 'vi' ? template.bodyVi : template.body
+        
+        form.setValue('subject', subject)
+        form.setValue('body', body)
+    }, [form, language])
+
     // Calculate total size of attachments
     const totalSize = attachments.reduce((sum, a) => sum + a.file.size, 0)
 
@@ -323,11 +333,17 @@ export function ComposeDialog({ children, initialData, onDraftUpdated: _onDraftU
         <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>{children}</DialogTrigger>
             <DialogContent className="sm:max-w-[600px]" aria-describedby="compose-dialog-description">
-                <DialogHeader>
-                    <DialogTitle>{t.mail.newMessage}</DialogTitle>
-                    <DialogDescription id="compose-dialog-description" className="sr-only">
-                        {language === 'vi' ? 'Soạn email mới để gửi' : 'Compose a new email to send'}
-                    </DialogDescription>
+                <DialogHeader className="flex flex-row items-center justify-between">
+                    <div>
+                        <DialogTitle>{t.mail.newMessage}</DialogTitle>
+                        <DialogDescription id="compose-dialog-description" className="sr-only">
+                            {language === 'vi' ? 'Soạn email mới để gửi' : 'Compose a new email to send'}
+                        </DialogDescription>
+                    </div>
+                    <EmailTemplates 
+                        onSelectTemplate={handleTemplateSelect}
+                        disabled={isLoading}
+                    />
                 </DialogHeader>
                 <Form {...form}>
                     <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
@@ -346,6 +362,7 @@ export function ComposeDialog({ children, initialData, onDraftUpdated: _onDraftU
                                                 className="border-0 shadow-none focus-visible:ring-0"
                                                 disabled={isLoading}
                                                 {...field}
+                                                value={field.value ?? ''}
                                             />
                                         </FormControl>
                                     </div>
@@ -369,6 +386,7 @@ export function ComposeDialog({ children, initialData, onDraftUpdated: _onDraftU
                                                 className="border-0 shadow-none focus-visible:ring-0"
                                                 disabled={isLoading}
                                                 {...field}
+                                                value={field.value ?? ''}
                                             />
                                         </FormControl>
                                     </div>
@@ -388,6 +406,7 @@ export function ComposeDialog({ children, initialData, onDraftUpdated: _onDraftU
                                             className="min-h-[200px] resize-none border-0 shadow-none focus-visible:ring-0"
                                             disabled={isLoading}
                                             {...field}
+                                            value={field.value ?? ''}
                                         />
                                     </FormControl>
                                     <FormMessage />

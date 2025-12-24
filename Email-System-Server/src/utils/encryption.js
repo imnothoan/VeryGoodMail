@@ -30,21 +30,37 @@ class EncryptionService {
 
   /**
    * Decrypt sensitive data
+   * Returns original data if decryption fails (for backwards compatibility with unencrypted data)
    * @param {string} encryptedData - Encrypted data
-   * @returns {string} - Decrypted plain text
+   * @returns {string} - Decrypted plain text or original data if not encrypted
    */
   decrypt(encryptedData) {
     if (!encryptedData) return encryptedData;
+    
     try {
+      // First, check if data looks like it might be encrypted (base64-like format)
+      // CryptoJS encrypted strings typically start with 'U2F' (base64 encoded 'Sal' from 'Salted__')
+      const looksEncrypted = /^[A-Za-z0-9+/=]+$/.test(encryptedData) && encryptedData.length > 20;
+      
+      if (!looksEncrypted) {
+        // Data doesn't look encrypted, return as-is (backwards compatibility)
+        return encryptedData;
+      }
+      
       const bytes = CryptoJS.AES.decrypt(encryptedData, this.secretKey);
       const decrypted = bytes.toString(CryptoJS.enc.Utf8);
+      
       if (!decrypted) {
-        throw new Error('Decryption resulted in empty string');
+        // Decryption resulted in empty string - might be unencrypted data
+        // Return original data for backwards compatibility
+        return encryptedData;
       }
+      
       return decrypted;
     } catch (error) {
-      console.error('Decryption error:', error.message);
-      throw new Error('Failed to decrypt data');
+      // If decryption fails, return original data (might be unencrypted legacy data)
+      // This allows backwards compatibility with data stored before encryption was added
+      return encryptedData;
     }
   }
 

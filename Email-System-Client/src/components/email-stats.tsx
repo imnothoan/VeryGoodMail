@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { BarChart3, Mail, Inbox, Send, AlertTriangle, Star, TrendingUp, Clock } from "lucide-react"
+import { BarChart3, Mail, Inbox, AlertTriangle, Star, TrendingUp, Clock } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
     Dialog,

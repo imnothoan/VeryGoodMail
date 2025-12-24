@@ -113,7 +113,7 @@ class EmailService {
     }
   }
 
-  private async fetchWithAuth(url: string, options: RequestInit = {}): Promise<Response> {
+  private async fetchWithAuth(url: string, options: RequestInit = {}, retryCount = 0): Promise<Response> {
     const token = await this.getAuthToken();
     
     if (!token) {
@@ -128,6 +128,15 @@ class EmailService {
         'Content-Type': 'application/json',
       },
     });
+    
+    // Handle 429 Too Many Requests with exponential backoff
+    if (response.status === 429 && retryCount < 3) {
+      const retryAfter = response.headers.get('Retry-After');
+      const delay = retryAfter ? parseInt(retryAfter) * 1000 : Math.pow(2, retryCount) * 1000;
+      console.warn(`Rate limited. Retrying in ${delay}ms (attempt ${retryCount + 1}/3)`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      return this.fetchWithAuth(url, options, retryCount + 1);
+    }
     
     // Handle 401 responses - token might have expired during the request
     if (response.status === 401) {

@@ -25,12 +25,12 @@ const SOCKET_CONFIG = {
     autoConnect: false, // Manual connect after auth
     // Reconnection settings (exponential backoff)
     reconnection: true,
-    reconnectionAttempts: 15, // Reduced for faster error feedback
+    reconnectionAttempts: 20, // Increased for better reliability
     reconnectionDelay: 1000,
-    reconnectionDelayMax: 10000, // Cap at 10 seconds
+    reconnectionDelayMax: 15000, // Cap at 15 seconds
     randomizationFactor: 0.3,
     // Timeouts - balanced for responsiveness
-    timeout: 15000,
+    timeout: 20000,
     // Force new connection on reconnect to avoid stale state
     forceNew: false,
     // Multiplexing - single connection per host
@@ -41,7 +41,7 @@ const SOCKET_CONFIG = {
 };
 
 // Heartbeat interval for manual keep-alive (in ms)
-const HEARTBEAT_INTERVAL = 30000;
+const HEARTBEAT_INTERVAL = 25000; // Slightly less than server pingInterval
 
 export const useSocket = () => {
     const { user, session } = useAuth();

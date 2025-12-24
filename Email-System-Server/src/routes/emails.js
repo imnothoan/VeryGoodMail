@@ -813,4 +813,294 @@ router.post('/bulk', async (req, res) => {
   }
 });
 
+/**
+ * GET /api/emails/thread/:threadId
+ * Get all emails in a conversation thread
+ * Returns emails sorted by date (oldest first for conversation flow)
+ */
+router.get('/thread/:threadId', async (req, res) => {
+  try {
+    const { supabase, user } = req;
+    const { threadId } = req.params;
+
+    // Get all emails in this thread for this user
+    const { data: emails, error } = await supabase
+      .from('emails')
+      .select('*, labels:email_labels(label:labels(*)), attachments(*)')
+      .eq('thread_id', threadId)
+      .eq('user_id', user.id)
+      .order('date', { ascending: true }); // Oldest first for conversation flow
+
+    if (error) {
+      throw error;
+    }
+
+    if (!emails || emails.length === 0) {
+      return res.status(404).json({ error: 'Thread not found' });
+    }
+
+    // Lookup sender profiles for avatars
+    const senderEmails = [...new Set(emails.map(e => e.sender_email).filter(Boolean))];
+    let senderProfiles = {};
+    
+    if (supabaseAdmin && senderEmails.length > 0) {
+      const EMAIL_DOMAIN = process.env.EMAIL_DOMAIN || 'verygoodmail.tech';
+      const internalSenders = senderEmails.filter(email => email.endsWith(`@${EMAIL_DOMAIN}`));
+      
+      if (internalSenders.length > 0) {
+        const { data: profiles } = await supabaseAdmin
+          .from('profiles')
+          .select('email, full_name, avatar_url')
+          .in('email', internalSenders);
+        
+        if (profiles) {
+          profiles.forEach(p => {
+            senderProfiles[p.email] = p;
+          });
+        }
+      }
+    }
+
+    // Decrypt email content
+    const decryptedEmails = emails.map(email => {
+      try {
+        const senderProfile = senderProfiles[email.sender_email];
+        return {
+          ...email,
+          body_text: email.body_text ? encryption.decrypt(email.body_text) : null,
+          body_html: email.body_html ? encryption.decrypt(email.body_html) : null,
+          snippet: email.snippet ? encryption.decrypt(email.snippet) : null,
+          has_attachments: email.attachments && email.attachments.length > 0,
+          sender_avatar_url: senderProfile?.avatar_url || null,
+          sender_name: senderProfile?.full_name || email.sender_name,
+        };
+      } catch (decryptError) {
+        return {
+          ...email,
+          sender_avatar_url: senderProfiles[email.sender_email]?.avatar_url || null,
+        };
+      }
+    });
+
+    // Get thread info
+    const { data: thread } = await supabase
+      .from('threads')
+      .select('*')
+      .eq('id', threadId)
+      .eq('user_id', user.id)
+      .single();
+
+    res.json({
+      thread: thread || {
+        id: threadId,
+        subject: emails[0]?.subject || '(No subject)',
+        message_count: emails.length,
+      },
+      emails: decryptedEmails,
+    });
+  } catch (error) {
+    console.error('Error fetching thread:', error);
+    res.status(500).json({ error: 'Failed to fetch thread' });
+  }
+});
+
+/**
+ * GET /api/emails/conversations
+ * Get emails grouped by conversation (thread)
+ * Returns unique threads with the latest email and unread count
+ */
+router.get('/conversations', async (req, res) => {
+  try {
+    const { supabase, user } = req;
+    const { 
+      folder = 'inbox', 
+      page = 1, 
+      limit = 50,
+      search
+    } = req.query;
+
+    // First, get all emails for the folder to group them
+    let query = supabase
+      .from('emails')
+      .select('*, labels:email_labels(label:labels(*)), attachments(*)')
+      .eq('user_id', user.id)
+      .order('date', { ascending: false });
+
+    // Apply folder filter
+    switch (folder) {
+      case 'inbox':
+        query = query.eq('is_trashed', false).eq('is_spam', false).eq('is_draft', false).eq('is_sent', false);
+        break;
+      case 'sent':
+        query = query.eq('is_sent', true).eq('is_trashed', false);
+        break;
+      case 'drafts':
+        query = query.eq('is_draft', true).eq('is_trashed', false);
+        break;
+      case 'spam':
+        query = query.eq('is_spam', true).eq('is_trashed', false);
+        break;
+      case 'trash':
+        query = query.eq('is_trashed', true);
+        break;
+      case 'starred':
+        query = query.eq('is_starred', true).eq('is_trashed', false);
+        break;
+      case 'important':
+      case 'social':
+      case 'promotions':
+      case 'updates':
+      case 'primary':
+        query = query
+          .eq('ai_category', folder)
+          .eq('is_trashed', false)
+          .eq('is_spam', false)
+          .eq('is_draft', false)
+          .eq('is_sent', false);
+        break;
+    }
+
+    if (search) {
+      query = query.ilike('subject', `%${search}%`);
+    }
+
+    const { data: allEmails, error } = await query;
+
+    if (error) {
+      throw error;
+    }
+
+    // Group emails by subject (normalized) to create conversations
+    // Gmail uses Message-ID and References headers, we'll use subject-based grouping
+    const conversationMap = new Map();
+    
+    for (const email of allEmails) {
+      // Normalize subject for grouping (remove Re:, Fwd: etc)
+      const normalizedSubject = normalizeSubject(email.subject);
+      const key = normalizedSubject.toLowerCase();
+      
+      if (!conversationMap.has(key)) {
+        conversationMap.set(key, {
+          thread_id: email.thread_id,
+          subject: email.subject,
+          normalized_subject: normalizedSubject,
+          emails: [],
+          latest_email: email,
+          unread_count: 0,
+          has_starred: false,
+          participants: new Set(),
+        });
+      }
+      
+      const conversation = conversationMap.get(key);
+      conversation.emails.push(email);
+      
+      // Track latest email
+      if (new Date(email.date) > new Date(conversation.latest_email.date)) {
+        conversation.latest_email = email;
+      }
+      
+      // Track unread count
+      if (!email.is_read) {
+        conversation.unread_count++;
+      }
+      
+      // Track starred
+      if (email.is_starred) {
+        conversation.has_starred = true;
+      }
+      
+      // Track participants
+      conversation.participants.add(email.sender_email);
+      if (email.recipient_emails) {
+        email.recipient_emails.forEach(r => conversation.participants.add(r));
+      }
+    }
+
+    // Convert to array and sort by latest email date
+    const conversations = Array.from(conversationMap.values())
+      .map(conv => ({
+        id: conv.thread_id,
+        subject: conv.subject,
+        normalized_subject: conv.normalized_subject,
+        message_count: conv.emails.length,
+        unread_count: conv.unread_count,
+        has_starred: conv.has_starred,
+        participants: Array.from(conv.participants),
+        latest_email: conv.latest_email,
+        // Include snippet from latest email
+        snippet: conv.latest_email.snippet,
+        date: conv.latest_email.date,
+      }))
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+    // Pagination
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+    const paginatedConversations = conversations.slice(offset, offset + parseInt(limit));
+
+    // Lookup sender profiles for latest emails
+    const senderEmails = [...new Set(paginatedConversations.map(c => c.latest_email.sender_email).filter(Boolean))];
+    let senderProfiles = {};
+    
+    if (supabaseAdmin && senderEmails.length > 0) {
+      const EMAIL_DOMAIN = process.env.EMAIL_DOMAIN || 'verygoodmail.tech';
+      const internalSenders = senderEmails.filter(email => email.endsWith(`@${EMAIL_DOMAIN}`));
+      
+      if (internalSenders.length > 0) {
+        const { data: profiles } = await supabaseAdmin
+          .from('profiles')
+          .select('email, full_name, avatar_url')
+          .in('email', internalSenders);
+        
+        if (profiles) {
+          profiles.forEach(p => {
+            senderProfiles[p.email] = p;
+          });
+        }
+      }
+    }
+
+    // Decrypt snippets and add avatar info
+    const result = paginatedConversations.map(conv => {
+      const senderProfile = senderProfiles[conv.latest_email.sender_email];
+      return {
+        ...conv,
+        snippet: conv.latest_email.snippet ? encryption.decrypt(conv.latest_email.snippet) : null,
+        latest_email: {
+          ...conv.latest_email,
+          body_text: conv.latest_email.body_text ? encryption.decrypt(conv.latest_email.body_text) : null,
+          snippet: conv.latest_email.snippet ? encryption.decrypt(conv.latest_email.snippet) : null,
+          sender_avatar_url: senderProfile?.avatar_url || null,
+          sender_name: senderProfile?.full_name || conv.latest_email.sender_name,
+        }
+      };
+    });
+
+    res.json({
+      conversations: result,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total: conversations.length
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching conversations:', error);
+    res.status(500).json({ error: 'Failed to fetch conversations' });
+  }
+});
+
+/**
+ * Helper function to normalize email subject for conversation grouping
+ * Removes Re:, Fwd:, etc. prefixes
+ */
+function normalizeSubject(subject) {
+  if (!subject) return '(No subject)';
+  // Remove common reply/forward prefixes in multiple languages
+  return subject
+    .replace(/^(Re|RE|Fwd|FWD|Fw|FW|Trả lời|TL|Chuyển tiếp|CT):\s*/gi, '')
+    .replace(/^(Re|RE|Fwd|FWD|Fw|FW)(\[\d+\])?:\s*/gi, '')
+    .trim() || '(No subject)';
+}
+
 module.exports = router;

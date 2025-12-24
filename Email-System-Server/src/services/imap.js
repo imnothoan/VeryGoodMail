@@ -602,17 +602,33 @@ class IMAPService {
 
       // Notify user via Socket.IO if connected (real-time update!)
       if (this.io) {
+        // Send all required fields for proper mail list display
         this.io.to(`user:${user.id}`).emit('new-email', {
           id: emailId,
           thread_id: threadId,
+          user_id: user.id,
           sender_name: senderName,
           sender_email: senderEmail,
+          sender_avatar_url: null, // External senders don't have avatar
+          recipient_emails: toAddresses,
+          cc_emails: ccAddresses,
           subject,
           snippet,
+          body_text: bodyText, // Include body text for preview
           date: date.toISOString(),
           is_read: false,
+          is_starred: false,
+          is_draft: false,
+          is_sent: false,
+          is_spam: isSpam,
+          is_trashed: false,
           ai_category: aiCategory,
+          ai_spam_score: aiSpamScore,
+          has_attachments: attachments && attachments.length > 0,
+          attachments: [], // TODO: Include attachment info when implemented
         });
+        
+        console.log(`📣 WebSocket notification sent to user:${user.id}`);
       }
 
       return emailId;

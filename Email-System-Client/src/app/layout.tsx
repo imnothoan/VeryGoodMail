@@ -3,6 +3,7 @@ import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { AuthProvider } from "@/contexts/auth-context";
 import { I18nProvider } from "@/contexts/i18n-context";
+import { Toaster } from "@/components/ui/toaster";
 
 export const metadata: Metadata = {
   title: "VeryGoodMail - Email Client",
@@ -28,6 +29,7 @@ export default function RootLayout({
           <I18nProvider>
             <AuthProvider>
               {children}
+              <Toaster />
             </AuthProvider>
           </I18nProvider>
         </ThemeProvider>

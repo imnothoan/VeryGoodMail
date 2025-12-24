@@ -4,8 +4,7 @@ const { v4: uuidv4 } = require('uuid');
 const { createClient } = require('@supabase/supabase-js');
 const encryption = require('../utils/encryption');
 const smtpService = require('../services/smtp');
-const phobertService = require('../services/phobert');
-const naiveBayes = require('../services/naiveBayes'); // Fallback classifier
+const naiveBayes = require('../services/naiveBayes'); // Enhanced Naive Bayes classifier
 
 // Create admin Supabase client for cross-user operations
 // Only create if credentials are provided
@@ -211,6 +210,7 @@ router.get('/', async (req, res) => {
         
         return {
           ...email,
+          subject: email.subject ? encryption.decrypt(email.subject) : '(No subject)',
           body_text: email.body_text ? encryption.decrypt(email.body_text) : null,
           body_html: email.body_html ? encryption.decrypt(email.body_html) : null,
           snippet: email.snippet ? encryption.decrypt(email.snippet) : null,
@@ -283,6 +283,7 @@ router.get('/:id', async (req, res) => {
     // Decrypt email content and add sender avatar
     const decryptedEmail = {
       ...email,
+      subject: email.subject ? encryption.decrypt(email.subject) : '(No subject)',
       body_text: email.body_text ? encryption.decrypt(email.body_text) : null,
       body_html: email.body_html ? encryption.decrypt(email.body_html) : null,
       snippet: email.snippet ? encryption.decrypt(email.snippet) : null,
@@ -330,12 +331,13 @@ router.post('/', async (req, res) => {
     // Create snippet from body (first 100 chars)
     const snippet = body_text ? body_text.substring(0, 100) : '';
 
-    // Encrypt sensitive content
+    // Encrypt sensitive content (including subject)
     const encryptedBody = body_text ? encryption.encrypt(body_text) : null;
     const encryptedHtml = body_html ? encryption.encrypt(body_html) : null;
     const encryptedSnippet = snippet ? encryption.encrypt(snippet) : null;
+    const encryptedSubject = subject ? encryption.encrypt(subject) : encryption.encrypt('(No subject)');
 
-    // AI Classification - Priority: PhoBERT > Naive Bayes fallback
+    // AI Classification using Enhanced Naive Bayes
     let aiCategory = 'primary';
     let aiSpamScore = 0;
     let isSpam = false;
@@ -343,43 +345,19 @@ router.post('/', async (req, res) => {
     let classificationSource = 'none';
     
     if (body_text || subject) {
-      const textToClassify = `${subject || ''} ${body_text || ''}`;
-      
-      // Try PhoBERT first (if available)
       try {
-        const phobertResult = await phobertService.classifyEmail(subject, body_text);
+        // Use the enhanced Naive Bayes classifier
+        const classification = naiveBayes.classifyEmail(subject, body_text);
         
-        if (phobertResult) {
-          // PhoBERT classification succeeded
-          aiCategory = phobertResult.category;
-          isSpam = phobertResult.isSpam;
-          aiSpamScore = phobertResult.spamScore;
-          aiSentiment = phobertResult.sentiment || 'neutral';
-          classificationSource = 'phobert';
-          console.log('Email classified by PhoBERT:', { aiCategory, isSpam, aiSentiment });
-        } else {
-          // PhoBERT not available, use Naive Bayes fallback
-          throw new Error('PhoBERT not available, using fallback');
-        }
-      } catch (phobertError) {
-        // Fallback to Naive Bayes
-        console.log('Using Naive Bayes fallback:', phobertError.message);
-        try {
-          const classification = naiveBayes.classify(textToClassify);
-          aiCategory = classification.category;
-          isSpam = classification.isSpam;
-          aiSpamScore = isSpam ? classification.confidence / 100 : 0;
-          classificationSource = 'naive_bayes';
-          
-          // Map category names
-          if (aiCategory === 'ham') aiCategory = 'primary';
-          if (aiCategory === 'spam') {
-            aiCategory = 'spam';
-            isSpam = true;
-          }
-        } catch (classifyError) {
-          console.log('Classification skipped:', classifyError.message);
-        }
+        aiCategory = classification.category;
+        isSpam = classification.isSpam;
+        aiSpamScore = classification.spamScore || 0;
+        aiSentiment = classification.sentiment || 'neutral';
+        classificationSource = classification.source || 'naive_bayes_enhanced';
+        
+        console.log('Email classified:', { aiCategory, isSpam, aiSentiment, confidence: classification.confidence });
+      } catch (classifyError) {
+        console.log('Classification skipped:', classifyError.message);
       }
     }
 
@@ -392,7 +370,7 @@ router.post('/', async (req, res) => {
       .insert({
         id: threadId,
         user_id: user.id,
-        subject: subject || '(No subject)',
+        subject: encryptedSubject,
         snippet: encryptedSnippet,
         last_message_at: new Date().toISOString()
       });
@@ -431,7 +409,7 @@ router.post('/', async (req, res) => {
       recipient_emails: to || [],
       cc_emails: cc || [],
       bcc_emails: bcc || [],
-      subject: subject || '(No subject)',
+      subject: encryptedSubject,
       snippet: encryptedSnippet,
       body_text: encryptedBody,
       body_html: encryptedHtml,
@@ -521,7 +499,7 @@ router.post('/', async (req, res) => {
             .insert({
               id: recipientThreadId,
               user_id: recipient.userId,
-              subject: subject || '(No subject)',
+              subject: encryptedSubject,
               snippet: encryptedSnippet,
               last_message_at: new Date().toISOString()
             });
@@ -539,7 +517,7 @@ router.post('/', async (req, res) => {
             recipient_emails: to || [],
             cc_emails: cc || [],
             bcc_emails: bcc || [],
-            subject: subject || '(No subject)',
+            subject: encryptedSubject,
             snippet: encryptedSnippet,
             body_text: encryptedBody,
             body_html: encryptedHtml,
@@ -867,6 +845,7 @@ router.get('/thread/:threadId', async (req, res) => {
         const senderProfile = senderProfiles[email.sender_email];
         return {
           ...email,
+          subject: email.subject ? encryption.decrypt(email.subject) : '(No subject)',
           body_text: email.body_text ? encryption.decrypt(email.body_text) : null,
           body_html: email.body_html ? encryption.decrypt(email.body_html) : null,
           snippet: email.snippet ? encryption.decrypt(email.snippet) : null,
@@ -882,7 +861,7 @@ router.get('/thread/:threadId', async (req, res) => {
       }
     });
 
-    // Get thread info
+    // Get thread info and decrypt subject
     const { data: thread } = await supabase
       .from('threads')
       .select('*')
@@ -890,10 +869,25 @@ router.get('/thread/:threadId', async (req, res) => {
       .eq('user_id', user.id)
       .single();
 
+    // Decrypt thread subject if available
+    let decryptedThreadSubject = '(No subject)';
+    if (thread?.subject) {
+      try {
+        decryptedThreadSubject = encryption.decrypt(thread.subject);
+      } catch {
+        decryptedThreadSubject = thread.subject; // Fallback to original if not encrypted
+      }
+    } else if (decryptedEmails[0]?.subject) {
+      decryptedThreadSubject = decryptedEmails[0].subject;
+    }
+
     res.json({
-      thread: thread || {
+      thread: thread ? {
+        ...thread,
+        subject: decryptedThreadSubject,
+      } : {
         id: threadId,
-        subject: emails[0]?.subject || '(No subject)',
+        subject: decryptedThreadSubject,
         message_count: emails.length,
       },
       emails: decryptedEmails,
@@ -961,7 +955,8 @@ router.get('/conversations', async (req, res) => {
     }
 
     if (search) {
-      query = query.ilike('subject', `%${search}%`);
+      // Search will need to search on decrypted content - for now we'll filter client-side
+      // This is a limitation when subject is encrypted
     }
 
     const { data: allEmails, error } = await query;
@@ -970,19 +965,40 @@ router.get('/conversations', async (req, res) => {
       throw error;
     }
 
+    // First decrypt all email subjects for grouping
+    const emailsWithDecryptedSubjects = allEmails.map(email => {
+      let decryptedSubject = '(No subject)';
+      try {
+        decryptedSubject = email.subject ? encryption.decrypt(email.subject) : '(No subject)';
+      } catch {
+        decryptedSubject = email.subject || '(No subject)'; // Fallback for unencrypted
+      }
+      return {
+        ...email,
+        decrypted_subject: decryptedSubject,
+      };
+    });
+
+    // Filter by search query on decrypted subject if provided
+    const filteredEmails = search 
+      ? emailsWithDecryptedSubjects.filter(email => 
+          email.decrypted_subject.toLowerCase().includes(search.toLowerCase())
+        )
+      : emailsWithDecryptedSubjects;
+
     // Group emails by subject (normalized) to create conversations
     // Gmail uses Message-ID and References headers, we'll use subject-based grouping
     const conversationMap = new Map();
     
-    for (const email of allEmails) {
+    for (const email of filteredEmails) {
       // Normalize subject for grouping (remove Re:, Fwd: etc)
-      const normalizedSubject = normalizeSubject(email.subject);
+      const normalizedSubject = normalizeSubject(email.decrypted_subject);
       const key = normalizedSubject.toLowerCase();
       
       if (!conversationMap.has(key)) {
         conversationMap.set(key, {
           thread_id: email.thread_id,
-          subject: email.subject,
+          subject: email.decrypted_subject, // Use decrypted subject
           normalized_subject: normalizedSubject,
           emails: [],
           latest_email: email,
@@ -1060,16 +1076,32 @@ router.get('/conversations', async (req, res) => {
       }
     }
 
-    // Decrypt snippets and add avatar info
+    // Decrypt snippets and add avatar info (subject already decrypted in decrypted_subject)
     const result = paginatedConversations.map(conv => {
       const senderProfile = senderProfiles[conv.latest_email.sender_email];
+      let decryptedSnippet = null;
+      let decryptedBodyText = null;
+      
+      try {
+        decryptedSnippet = conv.latest_email.snippet ? encryption.decrypt(conv.latest_email.snippet) : null;
+      } catch {
+        decryptedSnippet = conv.latest_email.snippet;
+      }
+      
+      try {
+        decryptedBodyText = conv.latest_email.body_text ? encryption.decrypt(conv.latest_email.body_text) : null;
+      } catch {
+        decryptedBodyText = conv.latest_email.body_text;
+      }
+      
       return {
         ...conv,
-        snippet: conv.latest_email.snippet ? encryption.decrypt(conv.latest_email.snippet) : null,
+        snippet: decryptedSnippet,
         latest_email: {
           ...conv.latest_email,
-          body_text: conv.latest_email.body_text ? encryption.decrypt(conv.latest_email.body_text) : null,
-          snippet: conv.latest_email.snippet ? encryption.decrypt(conv.latest_email.snippet) : null,
+          subject: conv.latest_email.decrypted_subject || conv.subject, // Use already decrypted subject
+          body_text: decryptedBodyText,
+          snippet: decryptedSnippet,
           sender_avatar_url: senderProfile?.avatar_url || null,
           sender_name: senderProfile?.full_name || conv.latest_email.sender_name,
         }

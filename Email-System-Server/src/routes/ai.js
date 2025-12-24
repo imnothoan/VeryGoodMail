@@ -2,13 +2,11 @@ const express = require('express');
 const router = express.Router();
 const geminiService = require('../services/gemini');
 const vectorSpace = require('../services/vectorSpace');
-
-// PhoBERT service URL (Python FastAPI)
-const PHOBERT_URL = process.env.PHOBERT_URL || 'http://localhost:8000';
+const naiveBayes = require('../services/naiveBayes'); // Enhanced Naive Bayes classifier
 
 /**
  * POST /api/ai/classify
- * Classify email using PhoBERT (spam, sentiment, category)
+ * Classify email using Enhanced Naive Bayes (spam, sentiment, category)
  */
 router.post('/classify', async (req, res) => {
   try {
@@ -18,23 +16,23 @@ router.post('/classify', async (req, res) => {
       return res.status(400).json({ error: 'Subject or body is required' });
     }
 
-    // Call PhoBERT service
-    const response = await fetch(`${PHOBERT_URL}/classify`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ subject, body, language })
+    // Use Enhanced Naive Bayes classifier
+    const result = naiveBayes.classifyEmail(subject, body);
+    
+    res.json({
+      is_spam: result.isSpam,
+      spam_confidence: result.spamScore,
+      category: result.category,
+      category_confidence: result.confidence / 100,
+      sentiment: result.sentiment,
+      sentiment_confidence: result.sentimentConfidence / 100,
+      source: result.source,
+      language
     });
-
-    if (!response.ok) {
-      throw new Error(`PhoBERT service error: ${response.status}`);
-    }
-
-    const result = await response.json();
-    res.json(result);
   } catch (error) {
     console.error('Classification error:', error);
     
-    // Fallback to rule-based classification if PhoBERT is unavailable
+    // Fallback response
     res.json({
       is_spam: false,
       spam_confidence: 0.5,
@@ -124,7 +122,7 @@ router.post('/smart-reply', async (req, res) => {
 
 /**
  * POST /api/ai/sentiment
- * Analyze email sentiment using PhoBERT
+ * Analyze email sentiment using Enhanced Naive Bayes
  */
 router.post('/sentiment', async (req, res) => {
   try {
@@ -134,19 +132,15 @@ router.post('/sentiment', async (req, res) => {
       return res.status(400).json({ error: 'Text is required' });
     }
 
-    // Call PhoBERT service
-    const response = await fetch(`${PHOBERT_URL}/sentiment`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text })
+    // Use Enhanced Naive Bayes sentiment analyzer
+    const result = naiveBayes.analyzeSentiment(text);
+    
+    res.json({
+      sentiment: result.sentiment,
+      confidence: result.confidence / 100,
+      all_sentiments: result.allSentiments,
+      source: 'naive_bayes_enhanced'
     });
-
-    if (!response.ok) {
-      throw new Error(`PhoBERT service error: ${response.status}`);
-    }
-
-    const result = await response.json();
-    res.json(result);
   } catch (error) {
     console.error('Sentiment analysis error:', error);
     res.json({
@@ -229,7 +223,7 @@ router.get('/suggestions', async (req, res) => {
 
 /**
  * POST /api/ai/batch-classify
- * Classify multiple emails at once
+ * Classify multiple emails at once using Enhanced Naive Bayes
  */
 router.post('/batch-classify', async (req, res) => {
   try {
@@ -243,27 +237,40 @@ router.post('/batch-classify', async (req, res) => {
       return res.status(400).json({ error: 'Maximum 100 emails per batch' });
     }
 
-    // Call PhoBERT service
-    const response = await fetch(`${PHOBERT_URL}/batch-classify`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(emails)
+    // Classify each email using Enhanced Naive Bayes
+    const results = emails.map(email => {
+      try {
+        const classification = naiveBayes.classifyEmail(email.subject, email.body);
+        return {
+          success: true,
+          is_spam: classification.isSpam,
+          spam_score: classification.spamScore,
+          category: classification.category,
+          confidence: classification.confidence,
+          sentiment: classification.sentiment,
+          source: classification.source
+        };
+      } catch {
+        return {
+          success: false,
+          is_spam: false,
+          category: 'primary',
+          confidence: 50,
+          sentiment: 'neutral',
+          fallback: true
+        };
+      }
     });
 
-    if (!response.ok) {
-      throw new Error(`PhoBERT service error: ${response.status}`);
-    }
-
-    const result = await response.json();
-    res.json(result);
+    res.json({ results });
   } catch (error) {
     console.error('Batch classification error:', error);
     res.status(500).json({ 
       error: 'Failed to classify emails',
-      results: emails.map(() => ({
+      results: req.body.emails?.map(() => ({
         success: false,
         fallback: true
-      }))
+      })) || []
     });
   }
 });
@@ -276,25 +283,13 @@ router.get('/health', async (req, res) => {
   try {
     const health = {
       gemini: await geminiService.healthCheck(),
-      phobert: { status: 'unknown' },
+      naiveBayes: {
+        status: 'healthy',
+        categories: naiveBayes.getCategories(),
+        sentiments: naiveBayes.getSentiments(),
+      },
       vectorSpace: vectorSpace.getStats()
     };
-
-    // Check PhoBERT service
-    try {
-      const response = await fetch(`${PHOBERT_URL}/health`, {
-        method: 'GET',
-        signal: AbortSignal.timeout(5000) // 5 second timeout
-      });
-      
-      if (response.ok) {
-        health.phobert = await response.json();
-      } else {
-        health.phobert = { status: 'error', message: `HTTP ${response.status}` };
-      }
-    } catch (error) {
-      health.phobert = { status: 'unavailable', message: error.message };
-    }
 
     res.json(health);
   } catch (error) {
@@ -305,7 +300,7 @@ router.get('/health', async (req, res) => {
 
 /**
  * POST /api/ai/train
- * Submit training data for PhoBERT (user feedback)
+ * Submit training data for classifier (user feedback)
  */
 router.post('/train', async (req, res) => {
   try {
@@ -337,9 +332,20 @@ router.post('/train', async (req, res) => {
       throw error;
     }
 
+    // Also train the in-memory classifier for immediate feedback
+    try {
+      if (label_type === 'category') {
+        naiveBayes.addTrainingDocument(text, label_value);
+      } else if (label_type === 'sentiment') {
+        naiveBayes.addSentimentDocument(text, label_value);
+      }
+    } catch (trainError) {
+      console.log('In-memory training skipped:', trainError.message);
+    }
+
     res.json({ 
       message: 'Training data submitted',
-      note: 'Data will be reviewed before being used for model improvement'
+      note: 'Classifier has been updated with your feedback'
     });
   } catch (error) {
     console.error('Training data error:', error);

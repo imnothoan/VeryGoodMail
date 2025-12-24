@@ -180,24 +180,40 @@ class SMTPService {
       
       // Return appropriate error message
       let errorMessage = 'Failed to send email';
+      const errorMsg = error.message?.toLowerCase() || '';
       
       if (error.code === 'ECONNREFUSED') {
         errorMessage = 'Unable to connect to email server';
       } else if (error.code === 'EAUTH') {
         errorMessage = 'Email authentication failed';
       } else if (error.responseCode === 550) {
-        errorMessage = 'Recipient address not found or rejected';
+        // Check for DKIM-specific errors in the 550 response
+        if (errorMsg.includes('dkim')) {
+          errorMessage = 'Email delivery failed due to DKIM configuration. Please contact support.';
+        } else if (errorMsg.includes('spf')) {
+          errorMessage = 'Email delivery failed due to SPF configuration. Please contact support.';
+        } else {
+          errorMessage = 'Recipient address not found or rejected';
+        }
       } else if (error.responseCode === 551 || error.responseCode === 553) {
         errorMessage = 'Invalid recipient address';
       } else if (error.responseCode === 552) {
         errorMessage = 'Message size exceeds limit';
       } else if (error.responseCode === 554) {
-        errorMessage = 'Transaction failed - message rejected';
+        // Check for DNS/authentication errors
+        if (errorMsg.includes('dkim') || errorMsg.includes('spf') || errorMsg.includes('dmarc')) {
+          errorMessage = 'Email delivery failed due to DNS configuration issues. Please contact support.';
+        } else {
+          errorMessage = 'Transaction failed - message rejected';
+        }
       } else if (error.code === 'ENOTFOUND') {
         errorMessage = 'Recipient domain not found';
       } else if (error.code === 'ETIMEDOUT' || error.code === 'ESOCKET') {
         errorMessage = 'Connection timeout - please try again';
-      } else if (error.message?.toLowerCase().includes('address')) {
+      } else if (errorMsg.includes('dkim')) {
+        // Handle DKIM errors regardless of response code
+        errorMessage = 'Email delivery failed due to DKIM configuration. The email was saved but external delivery may have failed.';
+      } else if (errorMsg.includes('address')) {
         errorMessage = 'Invalid email address';
       }
       

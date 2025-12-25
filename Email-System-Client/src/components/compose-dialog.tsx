@@ -86,6 +86,7 @@ export function ComposeDialog({ children, initialData, onDraftUpdated: _onDraftU
             })
             setDraftId(initialData.draftId)
         }
+        
     }, [initialData, form])
 
     // Refs to track state for cleanup without causing re-renders
@@ -264,9 +265,10 @@ export function ComposeDialog({ children, initialData, onDraftUpdated: _onDraftU
             })
 
             if (result.success) {
-                // Mark email as sent so we don't cleanup the attachments
+              
                 setEmailSentSuccessfully(true)
                 setOpen(false)
+                console.log('Email sent successfully')
                 form.reset()
                 setAttachments([])
             } else {

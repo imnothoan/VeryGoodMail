@@ -58,27 +58,27 @@ router.get('/counts/unread', async (req, res) => {
 
     emails.forEach(email => {
       const isUnread = !email.is_read;
-      
+
       // Count inbox (not sent, draft, spam, or trashed)
       if (!email.is_sent && !email.is_draft && !email.is_spam && !email.is_trashed && isUnread) {
         counts.inbox++;
       }
-      
+
       // Count drafts (all drafts, not just unread)
       if (email.is_draft && !email.is_trashed) {
         counts.drafts++;
       }
-      
+
       // Count spam
       if (email.is_spam && !email.is_trashed && isUnread) {
         counts.spam++;
       }
-      
+
       // Count starred
       if (email.is_starred && !email.is_trashed && isUnread) {
         counts.starred++;
       }
-      
+
       // Count by AI category (only for received emails, not sent)
       if (!email.is_trashed && !email.is_spam && !email.is_draft && !email.is_sent && isUnread) {
         const category = email.ai_category || 'primary';
@@ -102,9 +102,9 @@ router.get('/counts/unread', async (req, res) => {
 router.get('/', async (req, res) => {
   try {
     const { supabase, user } = req;
-    const { 
-      folder = 'inbox', 
-      page = 1, 
+    const {
+      folder = 'inbox',
+      page = 1,
       limit = 50,
       search,
       is_read,
@@ -181,19 +181,19 @@ router.get('/', async (req, res) => {
 
     // Get unique sender emails to lookup profiles
     const senderEmails = [...new Set(emails.map(e => e.sender_email).filter(Boolean))];
-    
+
     // Lookup sender profiles for avatars (only for internal domain emails)
     let senderProfiles = {};
     if (supabaseAdmin && senderEmails.length > 0) {
       const EMAIL_DOMAIN = process.env.EMAIL_DOMAIN || 'verygoodmail.tech';
       const internalSenders = senderEmails.filter(email => email.endsWith(`@${EMAIL_DOMAIN}`));
-      
+
       if (internalSenders.length > 0) {
         const { data: profiles } = await supabaseAdmin
           .from('profiles')
           .select('email, full_name, avatar_url')
           .in('email', internalSenders);
-        
+
         if (profiles) {
           profiles.forEach(p => {
             senderProfiles[p.email] = p;
@@ -207,10 +207,12 @@ router.get('/', async (req, res) => {
       try {
         // Get sender profile if available
         const senderProfile = senderProfiles[email.sender_email];
-        
+
         return {
           ...email,
-          subject: email.subject ? encryption.decrypt(email.subject) : '(No subject)',
+          ...email,
+          subject: email.subject || '(No subject)', // No decryption for subject
+
           body_text: email.body_text ? encryption.decrypt(email.body_text) : null,
           body_html: email.body_html ? encryption.decrypt(email.body_html) : null,
           snippet: email.snippet ? encryption.decrypt(email.snippet) : null,
@@ -283,7 +285,9 @@ router.get('/:id', async (req, res) => {
     // Decrypt email content and add sender avatar
     const decryptedEmail = {
       ...email,
-      subject: email.subject ? encryption.decrypt(email.subject) : '(No subject)',
+      ...email,
+      subject: email.subject || '(No subject)', // No decryption
+
       body_text: email.body_text ? encryption.decrypt(email.body_text) : null,
       body_html: email.body_html ? encryption.decrypt(email.body_html) : null,
       snippet: email.snippet ? encryption.decrypt(email.snippet) : null,
@@ -332,10 +336,14 @@ router.post('/', async (req, res) => {
     const snippet = body_text ? body_text.substring(0, 100) : '';
 
     // Encrypt sensitive content (including subject)
+    // Encrypt sensitive content (EXCLUDING subject)
     const encryptedBody = body_text ? encryption.encrypt(body_text) : null;
     const encryptedHtml = body_html ? encryption.encrypt(body_html) : null;
     const encryptedSnippet = snippet ? encryption.encrypt(snippet) : null;
-    const encryptedSubject = subject ? encryption.encrypt(subject) : encryption.encrypt('(No subject)');
+    // const encryptedSubject = subject ? encryption.encrypt(subject) : encryption.encrypt('(No subject)');
+
+    const finalSubject = subject || '(No subject)';
+
 
     // AI Classification using Enhanced Naive Bayes
     let aiCategory = 'primary';
@@ -343,18 +351,18 @@ router.post('/', async (req, res) => {
     let isSpam = false;
     let aiSentiment = 'neutral';
     let classificationSource = 'none';
-    
+
     if (body_text || subject) {
       try {
         // Use the enhanced Naive Bayes classifier
         const classification = naiveBayes.classifyEmail(subject, body_text);
-        
+
         aiCategory = classification.category;
         isSpam = classification.isSpam;
         aiSpamScore = classification.spamScore || 0;
         aiSentiment = classification.sentiment || 'neutral';
         classificationSource = classification.source || 'naive_bayes_enhanced';
-        
+
         console.log('Email classified:', { aiCategory, isSpam, aiSentiment, confidence: classification.confidence });
       } catch (classifyError) {
         console.log('Classification skipped:', classifyError.message);
@@ -364,14 +372,16 @@ router.post('/', async (req, res) => {
     // Create or find thread
     const threadId = uuidv4();
     const emailId = uuidv4();
-    
+
     await supabase
       .from('threads')
       .insert({
         id: threadId,
         user_id: user.id,
-        subject: encryptedSubject,
+        user_id: user.id,
+        subject: finalSubject,
         snippet: encryptedSnippet,
+
         last_message_at: new Date().toISOString()
       });
 
@@ -379,7 +389,7 @@ router.post('/', async (req, res) => {
     // Get sender's display name and avatar from profile (if available)
     let senderName = user.user_metadata?.full_name || user.email.split('@')[0];
     let senderAvatarUrl = user.user_metadata?.avatar_url || null;
-    
+
     // Try to get updated profile info from database (more reliable than metadata)
     if (supabaseAdmin) {
       const { data: senderProfile } = await supabaseAdmin
@@ -387,7 +397,7 @@ router.post('/', async (req, res) => {
         .select('full_name, avatar_url')
         .eq('id', user.id)
         .single();
-      
+
       if (senderProfile) {
         if (senderProfile.full_name) {
           senderName = senderProfile.full_name;
@@ -397,7 +407,7 @@ router.post('/', async (req, res) => {
         }
       }
     }
-    
+
     // Note: ai_classification_source is tracked in memory but not persisted to DB
     // as the column doesn't exist in the schema - this is by design for simplicity
     const emailData = {
@@ -409,9 +419,12 @@ router.post('/', async (req, res) => {
       recipient_emails: to || [],
       cc_emails: cc || [],
       bcc_emails: bcc || [],
-      subject: encryptedSubject,
+      cc_emails: cc || [],
+      bcc_emails: bcc || [],
+      subject: finalSubject,
       snippet: encryptedSnippet,
       body_text: encryptedBody,
+
       body_html: encryptedHtml,
       is_draft,
       is_sent: !is_draft,
@@ -458,12 +471,12 @@ router.post('/', async (req, res) => {
     let smtpResult = null;
     const internalDeliveries = [];
     const externalRecipients = [];
-    
+
     if (!is_draft && to && to.length > 0) {
       // Separate internal vs external recipients
       // Use environment variable for domain, fallback to default
       const EMAIL_DOMAIN = process.env.EMAIL_DOMAIN || 'verygoodmail.tech';
-      
+
       for (const recipientEmail of to) {
         if (recipientEmail.endsWith(`@${EMAIL_DOMAIN}`) && supabaseAdmin) {
           // Internal recipient - check if user exists using admin client
@@ -472,7 +485,7 @@ router.post('/', async (req, res) => {
             .select('id')
             .eq('email', recipientEmail)
             .single();
-          
+
           if (recipientProfile) {
             internalDeliveries.push({
               email: recipientEmail,
@@ -492,18 +505,20 @@ router.post('/', async (req, res) => {
         for (const recipient of internalDeliveries) {
           const recipientEmailId = uuidv4();
           const recipientThreadId = uuidv4();
-          
+
           // Create thread for recipient
           await supabaseAdmin
             .from('threads')
             .insert({
               id: recipientThreadId,
               user_id: recipient.userId,
-              subject: encryptedSubject,
+              user_id: recipient.userId,
+              subject: finalSubject,
               snippet: encryptedSnippet,
+
               last_message_at: new Date().toISOString()
             });
-          
+
           // Create email copy for recipient
           // Note: ai_classification_source tracked in memory only
           // IMPORTANT: Emails from internal users should never be marked as spam
@@ -517,9 +532,11 @@ router.post('/', async (req, res) => {
             recipient_emails: to || [],
             cc_emails: cc || [],
             bcc_emails: bcc || [],
-            subject: encryptedSubject,
+            bcc_emails: bcc || [],
+            subject: finalSubject,
             snippet: encryptedSnippet,
             body_text: encryptedBody,
+
             body_html: encryptedHtml,
             is_draft: false,
             is_sent: false, // This is received, not sent
@@ -539,7 +556,7 @@ router.post('/', async (req, res) => {
             console.error('Failed to deliver to internal recipient:', recipient.email, recipientError);
           } else {
             console.log('Email delivered to internal recipient:', recipient.email);
-            
+
             // Copy attachments for recipient
             if (attachments.length > 0) {
               const recipientAttachments = attachments.map(att => ({
@@ -627,11 +644,11 @@ router.post('/', async (req, res) => {
     });
   } catch (error) {
     console.error('Error creating email:', error);
-    
+
     // Provide more helpful error messages based on error type
     let errorMessage = 'Failed to create email';
     let statusCode = 500;
-    
+
     if (error.code === '23503') {
       // Foreign key violation
       errorMessage = 'Invalid reference: user or thread not found';
@@ -654,7 +671,7 @@ router.post('/', async (req, res) => {
         errorMessage = error.message;
       }
     }
-    
+
     res.status(statusCode).json({ error: errorMessage });
   }
 });
@@ -672,7 +689,7 @@ router.patch('/:id', async (req, res) => {
     // Only allow certain fields to be updated
     const allowedFields = ['is_read', 'is_starred', 'is_trashed', 'is_spam', 'is_draft'];
     const filteredUpdates = {};
-    
+
     Object.keys(updates).forEach(key => {
       if (allowedFields.includes(key)) {
         filteredUpdates[key] = updates[key];
@@ -820,17 +837,17 @@ router.get('/thread/:threadId', async (req, res) => {
     // Lookup sender profiles for avatars
     const senderEmails = [...new Set(emails.map(e => e.sender_email).filter(Boolean))];
     let senderProfiles = {};
-    
+
     if (supabaseAdmin && senderEmails.length > 0) {
       const EMAIL_DOMAIN = process.env.EMAIL_DOMAIN || 'verygoodmail.tech';
       const internalSenders = senderEmails.filter(email => email.endsWith(`@${EMAIL_DOMAIN}`));
-      
+
       if (internalSenders.length > 0) {
         const { data: profiles } = await supabaseAdmin
           .from('profiles')
           .select('email, full_name, avatar_url')
           .in('email', internalSenders);
-        
+
         if (profiles) {
           profiles.forEach(p => {
             senderProfiles[p.email] = p;
@@ -906,9 +923,9 @@ router.get('/thread/:threadId', async (req, res) => {
 router.get('/conversations', async (req, res) => {
   try {
     const { supabase, user } = req;
-    const { 
-      folder = 'inbox', 
-      page = 1, 
+    const {
+      folder = 'inbox',
+      page = 1,
       limit = 50,
       search
     } = req.query;
@@ -986,21 +1003,21 @@ router.get('/conversations', async (req, res) => {
     // - Search indexing service (e.g., Elasticsearch) with decrypted content
     // - Searchable encryption schemes (e.g., searchable symmetric encryption)
     // - Caching layer for frequently accessed decrypted content
-    const filteredEmails = search 
-      ? emailsWithDecryptedSubjects.filter(email => 
-          email.decrypted_subject.toLowerCase().includes(search.toLowerCase())
-        )
+    const filteredEmails = search
+      ? emailsWithDecryptedSubjects.filter(email =>
+        email.decrypted_subject.toLowerCase().includes(search.toLowerCase())
+      )
       : emailsWithDecryptedSubjects;
 
     // Group emails by subject (normalized) to create conversations
     // Gmail uses Message-ID and References headers, we'll use subject-based grouping
     const conversationMap = new Map();
-    
+
     for (const email of filteredEmails) {
       // Normalize subject for grouping (remove Re:, Fwd: etc)
       const normalizedSubject = normalizeSubject(email.decrypted_subject);
       const key = normalizedSubject.toLowerCase();
-      
+
       if (!conversationMap.has(key)) {
         conversationMap.set(key, {
           thread_id: email.thread_id,
@@ -1013,25 +1030,25 @@ router.get('/conversations', async (req, res) => {
           participants: new Set(),
         });
       }
-      
+
       const conversation = conversationMap.get(key);
       conversation.emails.push(email);
-      
+
       // Track latest email
       if (new Date(email.date) > new Date(conversation.latest_email.date)) {
         conversation.latest_email = email;
       }
-      
+
       // Track unread count
       if (!email.is_read) {
         conversation.unread_count++;
       }
-      
+
       // Track starred
       if (email.is_starred) {
         conversation.has_starred = true;
       }
-      
+
       // Track participants
       conversation.participants.add(email.sender_email);
       if (email.recipient_emails) {
@@ -1063,17 +1080,17 @@ router.get('/conversations', async (req, res) => {
     // Lookup sender profiles for latest emails
     const senderEmails = [...new Set(paginatedConversations.map(c => c.latest_email.sender_email).filter(Boolean))];
     let senderProfiles = {};
-    
+
     if (supabaseAdmin && senderEmails.length > 0) {
       const EMAIL_DOMAIN = process.env.EMAIL_DOMAIN || 'verygoodmail.tech';
       const internalSenders = senderEmails.filter(email => email.endsWith(`@${EMAIL_DOMAIN}`));
-      
+
       if (internalSenders.length > 0) {
         const { data: profiles } = await supabaseAdmin
           .from('profiles')
           .select('email, full_name, avatar_url')
           .in('email', internalSenders);
-        
+
         if (profiles) {
           profiles.forEach(p => {
             senderProfiles[p.email] = p;
@@ -1087,19 +1104,19 @@ router.get('/conversations', async (req, res) => {
       const senderProfile = senderProfiles[conv.latest_email.sender_email];
       let decryptedSnippet = null;
       let decryptedBodyText = null;
-      
+
       try {
         decryptedSnippet = conv.latest_email.snippet ? encryption.decrypt(conv.latest_email.snippet) : null;
       } catch {
         decryptedSnippet = conv.latest_email.snippet;
       }
-      
+
       try {
         decryptedBodyText = conv.latest_email.body_text ? encryption.decrypt(conv.latest_email.body_text) : null;
       } catch {
         decryptedBodyText = conv.latest_email.body_text;
       }
-      
+
       return {
         ...conv,
         snippet: decryptedSnippet,

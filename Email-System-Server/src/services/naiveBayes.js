@@ -1,15 +1,3 @@
-/**
- * Enhanced Naive Bayes Classifier for Email Classification
- * Implements multinomial Naive Bayes algorithm for:
- * - Spam Detection
- * - Email Category Classification  
- * - Sentiment Analysis
- * 
- * This is an enhanced version that doesn't rely on external services like PhoBERT
- * and provides accurate classification for both English and Vietnamese emails.
- * 
- * © 2025 VeryGoodMail by Hoàn
- */
 const natural = require('natural');
 
 class NaiveBayesClassifier {
@@ -22,7 +10,7 @@ class NaiveBayesClassifier {
     this.isTrained = false;
     this.categories = {
       SPAM: 'spam',
-      PRIMARY: 'primary',      // Normal/personal email
+      PRIMARY: 'primary',     
       IMPORTANT: 'important',
       SOCIAL: 'social',
       PROMOTIONS: 'promotions',
@@ -34,20 +22,14 @@ class NaiveBayesClassifier {
       NEGATIVE: 'negative',
       NEUTRAL: 'neutral'
     };
-    
-    // Initialize with comprehensive training data
+  
     this.initializeTrainingData();
     console.log('✓ Enhanced Naive Bayes classifier initialized');
   }
 
-  /**
-   * Initialize with comprehensive training data
-   * Includes both English and Vietnamese examples
-   */
+
   initializeTrainingData() {
-    // ============================================
-    // SPAM EXAMPLES (Extensive dataset)
-    // ============================================
+ 
     const spamExamples = [
       // English spam
       'You have won a lottery! Click here to claim your prize',
